@@ -8,7 +8,8 @@ from collections import OrderedDict
 from avae.utils import top_k_logits
 
 # TODO understand IARFlow
-# TODO not clear that the structure of the latent space, ie it being a k,q encoding space is actually helpfull....
+# TODO not clear that the structure of the latent space, ie it being a k,q
+# encoding space is actually helpfull....
 # TODO Have the encoder encode the whole word, as in not try to
 
 
@@ -86,23 +87,30 @@ class MADE(nn.Module):
 
         # sample the order of the inputs and the connectivity of all neurons
         self.m[-1] = self.ordering
-        for l in range(L):
-            self.m[l] = np.random.randint(
-                self.m[l - 1].min(), self.nin - 1, size=self.hidden_sizes[l]
+        for layer_idx in range(L):
+            self.m[layer_idx] = np.random.randint(
+                self.m[layer_idx - 1].min(),
+                self.nin - 1,
+                size=self.hidden_sizes[layer_idx],
             )
 
         # construct the mask matrices
         masks = [
-            self.m[l - 1][:, None] <= self.m[l][None, :] for l in range(L)
+            self.m[layer_idx - 1][:, None] <= self.m[layer_idx][None, :]
+            for layer_idx in range(L)
         ]
         masks.append(self.m[L - 1][:, None] < self.m[-1][None, :])
 
         masks[-1] = np.repeat(masks[-1], self.d, axis=1)
 
         # set the masks in all MaskedLinear layers
-        layers = [l for l in self.net.modules() if isinstance(l, MaskedLinear)]
-        for l, m in zip(layers, masks):
-            l.set_mask(m)
+        layers = [
+            layer
+            for layer in self.net.modules()
+            if isinstance(layer, MaskedLinear)
+        ]
+        for layer, m in zip(layers, masks):
+            layer.set_mask(m)
 
     def forward(self, x, cond=None):
         batch_size, seq_len = x.shape[0], x.shape[1]

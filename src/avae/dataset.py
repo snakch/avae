@@ -65,19 +65,19 @@ class CharDataset(Dataset):
         - given "he" please predict "l" next
         - given "hel" predict "l" next
         - given "hell" predict "o" next
-        
+
         In addition, because the DataLoader will create batches of examples,
         every forward/backward pass during traning will simultaneously train
         a LOT of predictions, amortizing a lot of computation. In particular,
         for a batched input of integers X (B, T) where B is batch size and
         T is block_size and Y (B, T), the network will during training be
-        simultaneously training to make B*T predictions, all at once! Of 
+        simultaneously training to make B*T predictions, all at once! Of
         course,at test time we can paralellize across batch B, but unlike
         during trainingwe cannot parallelize across the time dimension T - we
-        have to runa forward pass of the network to recover the next single 
-        character of the sequence along each batch dimenssion, and repeatedly 
+        have to runa forward pass of the network to recover the next single
+        character of the sequence along each batch dimenssion, and repeatedly
         always feed in a next character to get the next one.
-        
+
         So yes there is a big asymmetry between train/test time of
         autoregressive models. During training we can go B*T at a time with
         every forward pass, but during test time we can only go B at a time, T
