@@ -38,6 +38,6 @@ jobs:
       - name: install pytest
         run: python3 -m pip install pytest==6.1.1
       - name: pip freeze
-        run: python3 -m pip freeze
+        run: python3 -m pip freeze | grep avae
       - name: check
         run: python3 -m pytest
