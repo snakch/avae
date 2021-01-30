@@ -6,6 +6,6 @@ setup(
     name="avae",
     tests_require=["pytest"],
     version="0.1",
-    packages=find_packages("src"),
+    packages=find_packages(include=["src/avae"]),
     package_dir={"": "src"},
 )
