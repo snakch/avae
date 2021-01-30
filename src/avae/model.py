@@ -514,7 +514,18 @@ class AttentionVae(AttentionNetwork):
                 .sum(-1)
                 .mean(1)
             )
-
+            # Smart encoder sees partial word instead of full word and attempts
+            # to map to the same place in latent space
+            # Idea is that the encoder should have global stylistic info and
+            # the smart encoder is a network that attempts to capture as much
+            # of that as possible with partial context. Is this actually a good
+            # idea?
+            # Maybe we're actually encouraging to not encode global stuff
+            # Also could try some neural style transfer stuff?
+            # Maybe the encoding path should get to see some style thing (like
+            # a language) but not the decoding path
+            # Still question of how to go english language -> english name.
+            # Ie how do I transfer knowledge about words
             smart_encoder_guess = F.mse_loss(z_k_smart, z_k, reduction="none")
             smart_encoder_guess += F.mse_loss(z_v_smart, z_v, reduction="none")
             smart_encoder_guess = smart_encoder_guess.sum(-1).mean(1)

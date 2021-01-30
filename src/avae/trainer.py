@@ -71,7 +71,7 @@ class Trainer:
                 y = y.to(self.device)
                 word = word.to(self.device)
                 with torch.set_grad_enabled(is_train):
-                    logits, loss_dict = model(x, y, word)
+                    logits, loss_dict = model(x, y, word, training=True)
 
                     loss = loss_dict["loss"].mean()
                     for k, v in loss_dict.items():
