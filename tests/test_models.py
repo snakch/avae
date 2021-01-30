@@ -99,4 +99,3 @@ def test_attention_vae():
     #         [train_dataset.itos[int(i)] for i in sent]
     #     )
     #     print(completion)
-
