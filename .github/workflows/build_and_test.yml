@@ -34,7 +34,7 @@ jobs:
       - name: install requirements
         run: python3 -m pip install -r requirements.txt
       - name: install package
-        run: python3 pip install .
+        run: python3 -m pip install .
       - name: install pytest
         run: python3 -m pip install pytest==6.1.1
       - name: check
