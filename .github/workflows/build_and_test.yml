@@ -32,4 +32,5 @@ jobs:
       - name: update pip
         run: python3 -m pip install pytest==6.1.1
       - name: check
-        run: pytest tests/
+        shell: bash -l {0}
+        run: pytest
