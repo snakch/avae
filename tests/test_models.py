@@ -49,26 +49,26 @@ loader = data.DataLoader(
 
 def test_block():
     block = Block(config)
-    x, y = next(iter(loader))
+    x, y, word = next(iter(loader))
     tok_emb = nn.Embedding(config.vocab_size, config.n_embd)(x)
 
-    assert block(tok_emb).shape == torch.Size([batch_size, maxlen - 1, n_embd])
+    assert block(tok_emb).shape == torch.Size([batch_size, maxlen, n_embd])
 
 
 def test_encoder():
 
     encoder = Encoder(config)
-    x, y = next(iter(loader))
+    x, y, word = next(iter(loader))
     out = encoder(x)
 
-    assert out.shape == torch.Size([batch_size, maxlen - 1, n_embd * 4])
+    assert out.shape == torch.Size([batch_size, maxlen, n_embd * 4])
 
 
 def test_decoder():
 
     iter_loader = iter(loader)
-    x, y = next(iter_loader)
-    k, q = next(iter_loader)
+    x, y, _ = next(iter_loader)
+    k, q, _ = next(iter_loader)
 
     z_k = nn.Embedding(config.vocab_size, config.n_embd)(k)
     z_q = nn.Embedding(config.vocab_size, config.n_embd)(q)
@@ -77,7 +77,7 @@ def test_decoder():
 
     out, _ = decoder(x, z_k, z_q)
 
-    assert out.shape == torch.Size([batch_size, maxlen - 1, config.vocab_size])
+    assert out.shape == torch.Size([batch_size, maxlen, config.vocab_size])
 
 
 def test_attention_vae():
@@ -86,7 +86,7 @@ def test_attention_vae():
     x, y, word = next(iter_loader)
 
     vae = AttentionVae(config)
-    out, _, = vae(x, y, word)
+    out, _, = vae(x, y, word, training=True)
 
     assert out.shape == torch.Size([batch_size, maxlen, config.vocab_size])
 
