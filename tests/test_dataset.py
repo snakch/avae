@@ -1,4 +1,4 @@
-import avae
+import torch
 
 print(dir(avae))
 
