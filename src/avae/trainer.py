@@ -1,6 +1,6 @@
 import math
 from dataclasses import dataclass
-from collections import OrderedDict, defaultdict
+from collections import defaultdict
 
 import numpy as np
 import torch
@@ -140,7 +140,7 @@ class Trainer:
                 return test_loss
             return epoch_losses
 
-        best_loss = float("inf")
+        # best_loss = float("inf")
         self.tokens = 0
 
         all_losses = defaultdict(list)

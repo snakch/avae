@@ -14,7 +14,7 @@ jobs:
       - name: install requires
         run: python3 -m pip install -r requirements.txt
       - name: run black
-        run: python3 -m black --check .
+        run: python3 -m black --line-length 79 --check .
   flake8:
     name: flake8
     runs-on: ubuntu-latest
