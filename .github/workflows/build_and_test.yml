@@ -32,4 +32,4 @@ jobs:
       - name: update pip
         run: python3 -m pip install pytest==6.1.1
       - name: check
-        run: pytest
+        run: python -m pytest
