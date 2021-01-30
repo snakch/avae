@@ -2,7 +2,7 @@ import avae
 
 print(dir(avae))
 
-from avae.dataset import CharDataset
+from avae.avae.dataset import CharDataset
 
 
 text = (
