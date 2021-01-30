@@ -30,6 +30,6 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - name: update pip
-        run: python3 -m pip install pytest==6.1.1
+        run: pip install pytest==6.1.1
       - name: check
-        run: python -m pytest
+        run: pytest
