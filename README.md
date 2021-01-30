@@ -9,3 +9,20 @@ Also implement a few tricks to be able to learn how words are formed more explic
 
 A few ideas of interest revolve around how to do transfer learning (for example teach a model how to create words in one languge, and see if you can do so using a different smaller dataset in another langugae)
 and encode meaningful features in the latent space (for example can we encode "style" features in the latent space?)
+
+### Installation
+
+Ideally create a new environment, for example using conda
+
+```bash
+conda create -n avae
+conda activate avae
+
+```
+
+From the root of the repo, run:
+```bash
+pip install -r requirements
+pip install .
+
+```
