@@ -37,5 +37,7 @@ jobs:
         run: python3 -m pip install .
       - name: install pytest
         run: python3 -m pip install pytest==6.1.1
+      - name: pip freeze
+        run: python3 -m pip freeze
       - name: check
         run: python3 -m pytest

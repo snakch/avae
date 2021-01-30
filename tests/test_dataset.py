@@ -1,3 +1,7 @@
+import avae
+
+print(dir(avae))
+
 from avae.dataset import CharDataset
 
 
