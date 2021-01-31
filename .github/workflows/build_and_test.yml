@@ -24,20 +24,3 @@ jobs:
         run: python3 -m pip install flake8==3.8.3
       - name: check
         run: python3 -m flake8 .
-  test:
-    name: test
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-      - name: install setuptools
-        run: python3 -m pip install setuptools
-      - name: install requirements
-        run: python3 -m pip install -r requirements.txt
-      - name: install package
-        run: python3 -m pip install .
-      - name: install pytest
-        run: python3 -m pip install pytest==6.1.1
-      - name: pip freeze
-        run: python3 -m pip freeze | grep avae
-      - name: check
-        run: python3 -m pytest

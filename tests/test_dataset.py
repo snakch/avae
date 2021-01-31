@@ -1,9 +1,4 @@
-print(help("modules"))
-import torch
-
-print(dir(avae))
-
-from avae.avae.dataset import CharDataset
+from avae.dataset import CharDataset
 
 
 text = (
