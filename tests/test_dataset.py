@@ -1,3 +1,4 @@
+print(help("modules"))
 import torch
 
 print(dir(avae))
