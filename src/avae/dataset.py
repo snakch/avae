@@ -4,13 +4,18 @@ import torch
 
 
 class CharDataset(Dataset):
-    def __init__(self, data, block_size):
+    def __init__(self, data, block_size, chars=None):
 
         self.word_list = data.split(" ")
         self.word_list = [word + "0" for word in self.word_list]
         lengths = np.array([len(word) for word in self.word_list])
 
-        chars = sorted(list(set(data)))
+        self.unique_word_list = [word[:-1] for word in set(self.word_list)]
+
+        if not chars:
+            chars = sorted(list(set(data)))
+            if "0" not in chars:
+                chars = ["0"] + chars
         if "0" not in chars:
             chars = ["0"] + chars
 
@@ -45,6 +50,7 @@ class CharDataset(Dataset):
         # encode entire word
         word_padding = "0" * (self.block_size - self.word_lengths[idx] + 1)
         word = word_padding + self.word_list[self.idx_to_word[idx]][:-1]
+
         word_int = [self.stoi[s] for s in word]
 
         # encode every character to an integer
