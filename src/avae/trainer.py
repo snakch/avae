@@ -73,6 +73,11 @@ class Trainer:
 
         all_losses = defaultdict(list)
 
+        if self.test_dataset:
+            test_losses = self.test()
+            for key, val in test_losses.items():
+                all_losses[key].append(val)
+
         for epoch in range(config.max_epochs):
             loss_dict = self.run_epoch(epoch, optimizer, "train")
             # if self.test_dataset is not None:
@@ -82,8 +87,9 @@ class Trainer:
                 all_losses[k].extend(v)
 
             if self.test_dataset:
-                test_loss = self.test()
-                all_losses["test_loss"].append(test_loss)
+                test_losses = self.test()
+                for key, val in test_losses.items():
+                    all_losses[key].append(val)
 
         return all_losses
 
@@ -158,9 +164,12 @@ class Trainer:
                     self.print_samples()
 
         if not is_train:
-            test_loss = float(np.mean(epoch_losses["loss"]))
-            print(f"Test loss: {test_loss}")
-            return test_loss
+            test_losses = {
+                "test_" + key: np.mean(val)
+                for key, val in epoch_losses.items()
+            }
+            print(f"Test loss: {test_losses['test_loss']}")
+            return test_losses
         return epoch_losses
 
     def test(self):

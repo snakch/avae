@@ -102,6 +102,7 @@ def generate_samples(
     method="smart",
     sample=False,
     temperature=1.0,
+    top_k=None,
 ):
     context = (
         "0" * (vae.config.block_size - len(initial_context)) + initial_context
@@ -116,7 +117,12 @@ def generate_samples(
     ].to(device)
     x = torch.repeat_interleave(x, n_samples, dim=0)
     y = vae.sample(
-        x, 20, sample=sample, method=method, temperature=temperature
+        x,
+        20,
+        sample=sample,
+        method=method,
+        temperature=temperature,
+        top_k=top_k,
     )
 
     completions = []

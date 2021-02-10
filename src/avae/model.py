@@ -521,6 +521,16 @@ class AttentionVae(AttentionNetwork):
             z_k_smart = self.reparametrize(m_k_smart, log_s_k_smart)
             z_v_smart = self.reparametrize(m_v_smart, log_s_v_smart)
 
+            # Very quick and dirty way of killing the encoder
+            # z_k = torch.ones_like(z_k)
+            # log_s_k = torch.ones_like(log_s_k)
+            # log_s_v = torch.ones_like(log_s_v)
+            # z_v = torch.ones_like(z_v)
+            # m_k_smart = torch.ones_like(m_k_smart)
+            # log_s_k_smart = torch.ones_like(log_s_k_smart)
+            # m_v_smart = torch.ones_like(m_v_smart)
+            # log_s_v_smart = torch.ones_like(log_s_v_smart)
+
             x, CE = self.decoder(input, z_k, z_v, targets=output)
             CE = CE.view(x.shape[0], -1).sum(1)
 
@@ -690,13 +700,13 @@ class AttentionVae(AttentionNetwork):
                 #     x
                 #     if x.size(1) <= self.config.block_size
                 x_cond = x[:, -self.config.block_size :]
-                if method == "smart":
-                    z_k, z_v = self.sample_latent(
-                        x[:, -self.config.block_size :],
-                        self.config.block_size,
-                        x.device,
-                        method=method,
-                    )
+
+                z_k, z_v = self.sample_latent(
+                    x[:, -self.config.block_size :],
+                    self.config.block_size,
+                    x.device,
+                    method=method,
+                )
 
                 # )  # crop context if needed
 
