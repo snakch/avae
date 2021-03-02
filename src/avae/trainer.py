@@ -50,11 +50,22 @@ class Trainer:
             self.model = self.model.to(self.device)
 
         if hasattr(model, "stoi"):
-            assert model.stoi == train_dataset.stoi
-            assert model.itos == train_dataset.itos
+            # assert model.stoi == train_dataset.stoi
+            # assert model.itos == train_dataset.itos
+            # assert model.sourcetoi == train_dataset.sourcetoi
+            # assert model.itosource == train_dataset.itosource
+            train_dataset.stoi = model.stoi
+            train_dataset.itos = model.itos
+            train_dataset.sourcetoi = model.sourcetoi
+            train_dataset.itosource = model.itosource
+
         else:
             model.stoi = train_dataset.stoi
             model.itos = train_dataset.itos
+            model.sourcetoi = train_dataset.sourcetoi
+            model.itosource = train_dataset.itosource
+
+        self.losses = defaultdict(list)
 
     def save_checkpoint(self):
         raw_model = (
@@ -71,27 +82,25 @@ class Trainer:
         # best_loss = float("inf")
         self.tokens = 0
 
-        all_losses = defaultdict(list)
-
         if self.test_dataset:
             test_losses = self.test()
             for key, val in test_losses.items():
-                all_losses[key].append(val)
+                self.losses[key].append(val)
 
         for epoch in range(config.max_epochs):
-            loss_dict = self.run_epoch(epoch, optimizer, "train")
+            self.run_epoch(epoch, optimizer, "train")
             # if self.test_dataset is not None:
-            # test_loss = run_epoch("test")
+            # test_loss =\ run_epoch("test")
 
-            for k, v in loss_dict.items():
-                all_losses[k].extend(v)
+            # for k, v in loss_dict.items():
+            # self.losses[k].extend(v)
 
             if self.test_dataset:
                 test_losses = self.test()
                 for key, val in test_losses.items():
-                    all_losses[key].append(val)
+                    self.losses[key].append(val)
 
-        return all_losses
+        return self.losses
 
     def run_epoch(self, epoch, optimizer, split):
         is_train = split == "train"
@@ -111,16 +120,21 @@ class Trainer:
             if is_train
             else enumerate(loader)
         )
-        for it, (x, y, word) in pbar:
+        for it, (x, x_no_source, y, word) in pbar:
+            # print(x)
             x = x.to(self.device)
+            x_no_source = x_no_source.to(self.device)
             y = y.to(self.device)
             word = word.to(self.device)
             with torch.set_grad_enabled(is_train):
-                logits, loss_dict = self.model(x, y, word, training=True)
+                logits, loss_dict = self.model(
+                    x, x_no_source, y, word, training=True
+                )
 
                 loss = loss_dict["loss"].mean()
                 for k, v in loss_dict.items():
-                    epoch_losses[k].append(v.mean().item())
+                    if v is not None:
+                        self.losses[k].append(v.mean().item())
 
             if is_train:
                 self.model.zero_grad()
@@ -168,7 +182,7 @@ class Trainer:
                 "test_" + key: np.mean(val)
                 for key, val in epoch_losses.items()
             }
-            print(f"Test loss: {test_losses['test_loss']}")
+            # print(f"Test loss: {test_losses['test_loss']}")
             return test_losses
         return epoch_losses
 
@@ -180,9 +194,13 @@ class Trainer:
     def print_samples(self):
 
         # create an empty word context.
-        context = "0" * self.model.config.block_size
+        source = np.random.choice(self.train_dataset.unique_sources)
+        source_int = self.train_dataset.sourcetoi[source]
+
+        context = "0" * (self.model.config.block_size - 1)
         x = torch.tensor(
-            [self.train_dataset.stoi[s] for s in context], dtype=torch.long,
+            [source_int] + [self.train_dataset.stoi[s] for s in context],
+            dtype=torch.long,
         )[None, ...].to(self.device)
         x = torch.repeat_interleave(x, 5, dim=0)
 
@@ -191,7 +209,6 @@ class Trainer:
             y = self.model.sample(
                 x, 20, temperature=1.0, sample=True, top_k=10,
             )
-
         for gen_word in y:
             # sample = decode_word(
             #     gen_word.cpu().numpy(),
@@ -200,11 +217,12 @@ class Trainer:
             # )
 
             completion = "".join(
-                [self.train_dataset.itos[int(i)] for i in gen_word]
+                [self.train_dataset.itos[int(i)] for i in gen_word[1:]]
             )
-            sample = completion[self.model.config.block_size :].split("0")[0]
+            sample = completion[self.model.config.block_size - 1 :].split("0")[
+                0
+            ]
             sample += " " * (self.model.config.block_size - len(sample))
-
             if self.log_nearest_words:
 
                 # Find the nearest term in the training set.

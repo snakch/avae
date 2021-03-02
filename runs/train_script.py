@@ -37,36 +37,63 @@ def clean_word(word):
     return word
 
 
-def load_data(path):
+def load_data(paths):
 
-    names = []
-    with open(path, "r") as f:
-        for word in f:
-            names.append(clean_word(word))
-    return names
+    names_dict = {}
+
+    for source, path in paths.items():
+        names = []
+        with open(path, "r") as f:
+            for word in f:
+                names.append(clean_word(word))
+        names_dict[source] = names
+    return names_dict
 
 
-def get_datasets(names, maxlen, chars):
+def get_datasets(names_dict, maxlen, vae):
 
     split = 0.9
-    idx = int(len(names) * split)
     np.random.seed(137)
-    np.random.shuffle(names)
-    train_names = names[:idx]
-    val_names = names[idx:]
+    raw_train_names = {}
+    raw_val_names = {}
+    chars = list(vae.stoi.keys())
 
-    raw_train_names = " ".join(train_names)
-    raw_val_names = " ".join(val_names)
+    for source, names in names_dict.items():
+        idx = int(len(names) * split)
+        np.random.shuffle(names)
+        raw_train_names[source] = " ".join(names[:idx])
+        raw_val_names[source] = " ".join(names[idx:])
 
-    train_dataset = CharDataset(raw_train_names, maxlen, chars=chars)
-    val_dataset = CharDataset(raw_val_names, maxlen, chars=chars)
+    train_dataset = CharDataset(
+        raw_train_names,
+        maxlen,
+        chars=chars,
+        stoi=vae.stoi,
+        itos=vae.itos,
+        sourcetoi=vae.sourcetoi,
+        itosource=vae.itosource,
+    )
+
+    print("C", train_dataset.stoi)
+    print("D", train_dataset.itos)
+    val_dataset = CharDataset(
+        raw_val_names,
+        maxlen,
+        chars=chars,
+        stoi=vae.stoi,
+        itos=vae.itos,
+        sourcetoi=vae.sourcetoi,
+        itosource=vae.itosource,
+    )
+
     return train_dataset, val_dataset
 
 
-def get_sample(model, config, unique_train_words, context=""):
+def get_sample(model, config, unique_train_words, source, context=""):
 
     samples = generate_samples(
         model,
+        source=source,
         n_samples=config["n_samples"],
         initial_context=context,
         method=config["method"],
@@ -83,7 +110,7 @@ def get_sample(model, config, unique_train_words, context=""):
 
             match = process.extract(sample, unique_train_words, limit=1)[0][0]
             sample += " " * (20 - len(sample))
-            sample += f"\t\t closest match: {match}"
+            sample += f"\t Source: {source} \t closest match: {match}"
 
             text += sample
             text += "\n"
@@ -94,23 +121,67 @@ def get_all_samples(model, config, unique_train_words=None):
     text = ""
 
     context = ""
+    source = "english"
     text += f"Context : {context}\n"
-    sample = get_sample(model, config, unique_train_words, context=context)
+    sample = get_sample(
+        model, config, unique_train_words, source, context=context
+    )
+    text += sample
+
+    context = ""
+    source = "french"
+    text += f"Context : {context}\n"
+    sample = get_sample(
+        model, config, unique_train_words, source, context=context
+    )
     text += sample
 
     context = "a"
+    source = "english"
     text += f"Context : {context}\n"
-    sample = get_sample(model, config, unique_train_words, context=context)
+    sample = get_sample(
+        model, config, unique_train_words, source, context=context
+    )
+    text += sample
+
+    context = "a"
+    source = "french"
+    text += f"Context : {context}\n"
+    sample = get_sample(
+        model, config, unique_train_words, source, context=context
+    )
     text += sample
 
     context = "m"
+    source = "english"
     text += f"Context : {context}\n"
-    sample = get_sample(model, config, unique_train_words, context=context)
+    sample = get_sample(
+        model, config, unique_train_words, source, context=context
+    )
+    text += sample
+
+    context = "m"
+    source = "french"
+    text += f"Context : {context}\n"
+    sample = get_sample(
+        model, config, unique_train_words, source, context=context
+    )
     text += sample
 
     context = "sim"
+    source = "english"
     text += f"Context : {context}\n"
-    sample = get_sample(model, config, unique_train_words, context=context)
+    sample = get_sample(
+        model, config, unique_train_words, source, context=context
+    )
+    text += sample
+
+    context = "sim"
+    source = "french"
+    text += f"Context : {context}\n"
+    sample = get_sample(
+        model, config, unique_train_words, source, context=context
+    )
     text += sample
 
     return text
@@ -145,10 +216,9 @@ def fine_tune_evaluate(config):
     with open(model_outputs_dir / "config.yaml", "w+") as f:
         yaml.dump(config, f)
 
-    names = load_data(config["data_path"])
+    names = load_data(config["data_paths"])
     vae = AttentionVae.load(model_path)
 
-    chars = list(vae.stoi.keys())
     maxlen = vae.config.block_size
 
     frozen_list = []
@@ -161,7 +231,7 @@ def fine_tune_evaluate(config):
     trainer_config = config["trainer_config"]
     trainer_config["freeze_layers"] = tuple(frozen_list)
 
-    train_dataset, val_dataset = get_datasets(names, maxlen, chars)
+    train_dataset, val_dataset = get_datasets(names, maxlen, vae)
     final_tokens = 2 * len(train_dataset) * maxlen
 
     losses = train(
@@ -182,6 +252,8 @@ def fine_tune_evaluate(config):
     with open(model_outputs_dir / "samples.txt", "w") as f:
         f.write(sampled_text)
 
+    vae.save(model_outputs_dir / "model.pb")
+
 
 if __name__ == "__main__":
     config_path = parse_args().config_path
@@ -189,4 +261,3 @@ if __name__ == "__main__":
 
     # pdb.set_trace()
     main(config_path)
-

@@ -1,10 +1,12 @@
 import math
+from collections import OrderedDict
 
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import numpy as np
-from collections import OrderedDict
+from torch.autograd import Variable
+
 from avae.utils import top_k_logits
 
 # TODO understand IARFlow
@@ -19,10 +21,14 @@ class GPTConfig:
     embd_pdrop = 0.1
     resid_pdrop = 0.1
     attn_pdrop = 0.1
+    lambda_cat = 5.0
+    lambda_cont = 1.0
+    supervision_lambda = 5.0
 
-    def __init__(self, vocab_size, block_size, **kwargs):
+    def __init__(self, vocab_size, block_size, n_sources, **kwargs):
         self.vocab_size = vocab_size
         self.block_size = block_size
+        self.n_sources = n_sources
         for k, v in kwargs.items():
             setattr(self, k, v)
 
@@ -54,7 +60,7 @@ class MADE(nn.Module):
         self,
         input_shape,
         d,
-        hidden_size=[512, 512],
+        hidden_size=[128, 128],
         ordering=None,
         conditional_size=None,
     ):
@@ -416,6 +422,7 @@ class Encoder(AttentionNetwork):
         ), "Can't forward, model block size is exhausted"
 
         token_embeddings = self.tok_emb(idx)
+
         position_embeddings = self.pos_emb[:, :t, :]
 
         x = self.drop(token_embeddings + position_embeddings)
@@ -449,12 +456,35 @@ class Decoder(AttentionNetwork):
         self.post_decoder_block = BasicBlock(config)
 
         self.ln_f_post = nn.LayerNorm(config.n_embd)
+
         self.head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
+
+        self.pred_word_head = nn.Linear(
+            config.n_embd, config.vocab_size, bias=False
+        )
+
+        self.embedding_head = nn.Linear(
+            config.n_embd, config.n_embd, bias=False
+        )
+        self.sources_label_head = nn.Linear(
+            config.n_embd * config.block_size, config.n_sources, bias=False
+        )
 
         self.block_size = config.block_size
         self.apply(self._init_weights)
 
-    def forward(self, idx, z_k, z_v, targets=None):
+    def forward(
+        self,
+        idx,
+        z_k,
+        z_v,
+        targets=None,
+        target_embedding=None,
+        target_sources=None,
+        target_words=None,
+    ):
+        # print(idx)
+
         b, t = idx.size()
         assert (
             t <= self.block_size
@@ -472,13 +502,63 @@ class Decoder(AttentionNetwork):
         logits = self.head(x)
 
         loss = None
+        sources_loss = None
+        embeddings_loss = None
+        word_loss = None
         if targets is not None:
             loss = F.cross_entropy(
                 logits.view(-1, logits.size(-1)),
                 targets.view(-1),
                 reduction="none",
             )
-        return logits, loss
+        # if target_words is not None:
+        #     word_logits = self.pred_word_head(x)
+        #     word_loss = F.cross_entropy(
+        #         word_logits.view(-1, word_logits.size(-1)),
+        #         target_words.view(-1),
+        #         reduction="none",
+        #     )
+
+        # if target_sources is not None:
+        #     sources_loss = F.cross_entropy(
+        #         self.sources_label_head(x.reshape(x.shape[0], -1)),
+        #         target_sources,
+        #         reduction="none",
+        #     )
+        # if target_embedding is not None:
+        #     embeddings_loss = F.mse_loss(
+        #         self.embedding_head(x), target_embedding, reduction="none"
+        #     )
+
+        return logits, loss, sources_loss, embeddings_loss, word_loss
+
+
+class DoubleIdentity(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, x):
+        x_p = torch.cat([x, x], axis=2)
+        return x_p
+
+
+class MLP(nn.Module):
+    def __init__(self, in_size, out_size, hidden_dims):
+        super().__init__()
+        layers = [nn.Linear(in_size, hidden_dims[0])]
+        layers.append(nn.ReLU())
+        for i in range(len(hidden_dims) - 1):
+            layers.append(nn.Linear(hidden_dims[i], hidden_dims[i + 1]))
+            layers.append(nn.ReLU())
+        layers.append(nn.Linear(hidden_dims[-1], out_size))
+
+        self.layers = nn.ModuleList(layers)
+
+    def forward(self, x):
+        for layer in self.layers:
+            x = layer(x)
+
+        return x
 
 
 class AttentionVae(AttentionNetwork):
@@ -493,20 +573,45 @@ class AttentionVae(AttentionNetwork):
         self.encoder = Encoder(config)
         self.smart_encoder = Encoder(config)
 
+        self.supervisor = nn.Linear(
+            config.n_embd * config.block_size * 2, config.n_sources
+        )
+
+        self.classifier = MLP(
+            config.block_size * config.vocab_size, config.n_sources, [256]
+        )
+
         self.decoder = Decoder(config)
         if use_made_prior:
             self.prior_network = MADE(
-                2 * config.n_embd, 2, hidden_size=[512, 512]
+                2 * config.n_embd, 2, hidden_size=[128, 128]
             )
         else:
-            self.prior_network = nn.Identity()
+            self.prior_network = DoubleIdentity()
 
         print(
             "number of parameters: "
             f"{sum(p.numel() for p in self.parameters())}"
         )
 
-    def forward(self, input, output, word, training=False):
+    def forward(
+        self,
+        input,
+        x_no_source,
+        output,
+        word,
+        training=False,
+        mutual_info=True,
+        rand_word=False,
+        rand_z=False,
+    ):
+
+        if rand_word:
+            word[:, 0] = torch.randint(
+                self.config.vocab_size - self.config.n_sources,
+                self.config.vocab_size,
+                size=(128,),
+            ).cuda()
 
         m_k, log_s_k, m_v, log_s_v = torch.chunk(self.encoder(word), 4, -1)
 
@@ -531,8 +636,28 @@ class AttentionVae(AttentionNetwork):
             # m_v_smart = torch.ones_like(m_v_smart)
             # log_s_v_smart = torch.ones_like(log_s_v_smart)
 
-            x, CE = self.decoder(input, z_k, z_v, targets=output)
+            label = None
+            # embedding = None
+            # if mutual_info:
+            #     label = word[:, 0]
+
+            #     label = self.to_categorical(label, self.config.n_sources)
+
+            #     embedding = Variable(z_k, requires_grad=False)
+
+            x, CE, _, _, _ = self.decoder(
+                x_no_source,
+                z_k,
+                z_v,
+                targets=output,
+                # target_sources=label,
+                # target_embedding=embedding,
+                # target_words=word,
+            )
             CE = CE.view(x.shape[0], -1).sum(1)
+            # ce_word = ce_word.view(x.shape[0], -1).sum(1)
+            # sources_ce *= self.config.lambda_cat
+            # embeddings_mse = embeddings_mse.view(x.shape[0], -1).sum(1)
 
             KLD_k = (
                 (
@@ -598,6 +723,103 @@ class AttentionVae(AttentionNetwork):
             )
 
             z = torch.cat([z_k, z_v], axis=2)
+            z_smart = torch.cat([z_k_smart, z_v_smart], axis=2)
+
+            label = word[:, 0]
+            # TODO make only on first char... seems to be working?
+            # if rand_word:
+            # label = torch.randint(47, 50, size=(128,)).cuda()
+
+            if rand_z:
+                z[:, 1:, :] = torch.randn(size=(128, 32, 128)).cuda()
+
+            label = self.to_categorical(label, self.config.n_sources)
+
+            supervision = self.supervisor(z.view(z.shape[0], -1))
+            supervision = F.softmax(supervision, dim=-1)
+
+            supervision_loss = F.cross_entropy(
+                supervision.view(-1, supervision.size(-1)),
+                label.view(-1),
+                reduction="none",
+            )
+            supervision_smart = self.supervisor(
+                z_smart.view(z_smart.shape[0], -1)
+            )
+            supervision_smart = F.softmax(supervision_smart, dim=-1)
+
+            supervision_smart_loss = F.cross_entropy(
+                supervision_smart.view(-1, supervision_smart.size(-1)),
+                label.view(-1),
+                reduction="none",
+            )
+
+            word_probas = F.one_hot(output, self.config.vocab_size).float()
+            classification_label = F.softmax(
+                self.classifier(word_probas.view(word_probas.shape[0], -1)),
+                dim=-1,
+            )
+
+            classifier_loss_label = F.cross_entropy(
+                classification_label.view(-1, classification_label.size(-1)),
+                label.view(-1),
+                reduction="none",
+            )
+            # print(
+            #     "a",
+            #     classification_label.view(-1, classification_label.size(-1))[0]
+            #     .detach()
+            #     .cpu()
+            #     .numpy(),
+            # )
+
+            classification = F.softmax(
+                self.classifier(x.view(x.shape[0], -1)), dim=-1
+            )
+            # print(
+            #     "classification probas ",
+            #     (classification.mean(0).detach().cpu().numpy() * 10000).astype(
+            #         int
+            #     )
+            #     / 100,
+            # )
+            # print(label)
+
+            classifier_loss = F.cross_entropy(
+                classification.view(-1, classification.size(-1)),
+                label.view(-1),
+                reduction="none",
+            )
+
+            # print(
+            #     "b",
+            #     classification.view(-1, classification.size(-1))[0]
+            #     .detach()
+            #     .cpu()
+            #     .numpy(),
+            # )
+
+            x_smart, _, _, _, _ = self.decoder(
+                x_no_source,
+                z_k_smart,
+                z_v_smart,
+                targets=output,
+                # target_sources=label,
+                # target_embedding=embedding,
+                # target_words=word,
+            )
+
+            classification_smart = F.softmax(
+                self.classifier(x_smart.view(x_smart.shape[0], -1)), dim=-1
+            )
+            classifier_smart_loss = F.cross_entropy(
+                classification_smart.view(-1, classification_smart.size(-1)),
+                label.view(-1),
+                reduction="none",
+            )
+
+            label = self.to_categorical(label, self.config.n_sources)
+
             out = self.prior_network(z)
             mu, log_std = out.chunk(2, dim=-1)
             log_std = torch.tanh(log_std)
@@ -610,12 +832,35 @@ class AttentionVae(AttentionNetwork):
             )
             KLD = KLD_k + KLD_v
             KLD_smart = KLD_k_smart + KLD_v_smart
-            loss = CE + KLD + KLD_smart + smart_encoder_guess - prior_log_prob
+
+            loss = (
+                CE
+                + supervision_loss * self.config.supervision_lambda
+                + supervision_smart_loss * self.config.supervision_lambda
+                + classifier_loss * self.config.supervision_lambda
+                + classifier_smart_loss * self.config.supervision_lambda
+                + classifier_loss_label * self.config.supervision_lambda
+                # + ce_word
+                # + self.config.lambda_cat * sources_ce
+                # + self.config.lambda_cont * embeddings_mse
+                + KLD
+                + KLD_smart
+                + smart_encoder_guess
+                - prior_log_prob
+            )
+
             return (
                 x,
                 OrderedDict(
                     loss=loss,
+                    supervision_loss=supervision_loss,
+                    classifier_smart_loss=classifier_smart_loss,
+                    classifier_loss_label=classifier_loss_label,
+                    classifier_loss=classifier_loss,
                     ce=CE,
+                    # ce_word=ce_word,
+                    # sources_ce=sources_ce,
+                    # embeddings_mse=embeddings_mse,
                     kld=KLD,
                     kld_smart=KLD_smart,
                     prior_log_prob=prior_log_prob,
@@ -623,7 +868,7 @@ class AttentionVae(AttentionNetwork):
                 ),
             )
 
-        x, _ = self.decoder(input, z_k, z_v)
+        x, _, _, _, _ = self.decoder(x_no_source, z_k, z_v)
 
         return x
 
@@ -635,7 +880,15 @@ class AttentionVae(AttentionNetwork):
         z = m + torch.exp(log_s) * eps
         return z
 
-    def sample_latent(self, context, seq_len, device, method="smart"):
+    def sample_latent(
+        self,
+        context,
+        seq_len,
+        device,
+        method="smart",
+        second_context=None,
+        alpha=0.0,
+    ):
 
         if method == "smart":
             m_k_smart, log_s_k_smart, m_v_smart, log_s_v_smart = torch.chunk(
@@ -652,6 +905,38 @@ class AttentionVae(AttentionNetwork):
             z_v = torch.randn(
                 [context.shape[0], seq_len, self.config.n_embd], device=device
             )
+            # return z_k, z_v
+
+        elif method == "word":
+
+            m_k, log_s_k, m_v, log_s_v = torch.chunk(
+                self.smart_encoder(context), 4, -1
+            )
+
+            z_k = self.reparametrize(m_k, log_s_k)
+            z_v = self.reparametrize(m_v, log_s_v)
+            return z_k, z_v
+
+        elif method == "interpolate":
+            m_k, log_s_k, m_v, log_s_v = torch.chunk(
+                self.smart_encoder(context), 4, -1
+            )
+
+            z_k = self.reparametrize(m_k, log_s_k)
+            z_v = self.reparametrize(m_v, log_s_v)
+            m_k, log_s_k, m_v, log_s_v = torch.chunk(
+                self.smart_encoder(second_context), 4, -1
+            )
+
+            z_k = z_k * (
+                1 - alpha.unsqueeze(1).unsqueeze(2).float()
+            ) + self.reparametrize(m_k, log_s_k)
+            z_v = z_v * (
+                1 - alpha.unsqueeze(1).unsqueeze(2).float()
+            ) - self.reparametrize(m_v, log_s_v)
+
+            return z_k, z_v
+
         else:
             raise NotImplementedError("Method not recognised")
         z = torch.cat([z_k, z_v], dim=2)
@@ -660,6 +945,7 @@ class AttentionVae(AttentionNetwork):
             log_std = torch.tanh(log_std)
             mu, log_std = mu.squeeze(-1), log_std.squeeze(-1)
             z[:, i, :] = (z[:, i, :] - mu) * torch.exp(-log_std)
+            # print(z[..., 0])
         z_k, z_v = torch.chunk(z, 2, dim=-1)
         return z_k, z_v
 
@@ -671,6 +957,9 @@ class AttentionVae(AttentionNetwork):
         sample=False,
         top_k=None,
         method="smart",
+        around_word=None,
+        second_context=None,
+        initial_randomness=False,
     ):
         """
         take a conditioning sequence of indices in x (of shape (b,t)) and
@@ -690,6 +979,29 @@ class AttentionVae(AttentionNetwork):
                     x.device,
                     method=method,
                 )
+            elif method == "word":
+
+                z_k, z_v = self.sample_latent(
+                    # around_word[:, -self.config.block_size - 1 : -1],
+                    around_word,
+                    self.config.block_size,
+                    x.device,
+                    method=method,
+                )
+
+            elif method == "interpolate":
+                z_k, z_v = self.sample_latent(
+                    # around_word[:, -self.config.block_size - 1 : -1],
+                    around_word,
+                    self.config.block_size,
+                    x.device,
+                    method=method,
+                    second_context=second_context,
+                    alpha=torch.as_tensor(np.linspace(0, 1, x.shape[0])).to(
+                        "cuda"
+                    ),
+                )
+
             # print(logits.view(logits.size(0), -1).mean(1))
 
             for k in range(steps):
@@ -700,32 +1012,54 @@ class AttentionVae(AttentionNetwork):
                 #     x
                 #     if x.size(1) <= self.config.block_size
                 x_cond = x[:, -self.config.block_size :]
+                x_cond[:, 0] = 0
+                if method == "smart":
 
-                z_k, z_v = self.sample_latent(
-                    x[:, -self.config.block_size :],
-                    self.config.block_size,
-                    x.device,
-                    method=method,
-                )
+                    z_k, z_v = self.sample_latent(
+                        x[:, -self.config.block_size :],
+                        self.config.block_size,
+                        x.device,
+                        method=method,
+                    )
 
                 # )  # crop context if needed
 
-                logits, _ = self.decoder(x_cond, z_k, z_v)
+                logits, _, _, _, _ = self.decoder(x_cond, z_k, z_v)
                 # pluck the logits at the final step and scale by temperature
                 logits = logits[:, -1, :] / temperature
+
+                initial_flag = False
+                # start with things random and loose
+                if initial_randomness and k == 0:
+                    logits = top_k_logits(
+                        logits / 3 * temperature, self.config.vocab_size
+                    )
+                    initial_flag = True
+                    # print(flag)
+
                 # optionally crop probabilities to only the top k options
-                if top_k is not None:
+                elif top_k is not None:
                     logits = top_k_logits(logits, top_k)
+                    # print(flag)
+
+                logits[:, -self.config.n_sources :] = -float("Inf")
                 # apply softmax to convert to probabilities
                 probs = F.softmax(logits, dim=-1)
+                # print(probs.mean(0))
+                # if k == 0:
+                # print(probs.mean(axis=0))
                 # sample from the distribution or take the most likely
-                if sample:
+                if sample or initial_flag:
                     ix = torch.multinomial(probs, num_samples=1)
                 else:
                     _, ix = torch.topk(probs, k=1, dim=-1)
+                    if initial_flag:
+                        print(ix)
+                # if k == 0:
+                # print(ix)
                 # append to the sequence and continue
                 x = torch.cat((x, ix), dim=1)
-
+                # print(x.shape)
             return x
 
     def save(self, path):
@@ -735,3 +1069,13 @@ class AttentionVae(AttentionNetwork):
     def load(cls, path):
         model = torch.load(path)
         return model
+
+    def to_categorical(self, y, num_columns):
+        """Returns one-hot encoded Variable"""
+
+        # y_cat = torch.zeros((y.shape[0], num_columns)).to(y.device)
+        y_cat = y - y.min()
+
+        LongTensor = torch.cuda.LongTensor
+
+        return Variable(LongTensor(y_cat), requires_grad=False)

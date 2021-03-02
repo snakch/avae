@@ -1,11 +1,13 @@
 - name: 'unfrozen'
-  model_path: '/home/simon/code/namegen/avae/notebooks/wiki_model'
-  data_path: "/home/simon/code/namegen/data/names/french_names_no_accent.txt"
+  model_path: '/home/simon/code/namegen/avae/notebooks/latest_current'
+  data_paths: 
+    english:  "/home/simon/code/namegen/data/names/us_names.txt"
+    french : "/home/simon/code/namegen/data/names/french_names_no_accent.txt"
   outputs_dir: '/home/simon/code/namegen/avae/runs'
   freeze_layers:
     -
   trainer_config:
-    max_epochs: 30
+    max_epochs: 20
     batch_size: 256
     learning_rate: 0.0006
     lr_decay: True
@@ -17,89 +19,5 @@
     method: "smart"
     sample: True
     top_k: 5
-    temperature: 1.0
-    n_samples: 30
-- name: 'unfrozen'
-  model_path: '/home/simon/code/namegen/avae/notebooks/french_model'
-  data_path: "/home/simon/code/namegen/data/names/french_names_no_accent.txt"
-  outputs_dir: '/home/simon/code/namegen/avae/runs'
-  freeze_layers:
-    -
-  trainer_config:
-    max_epochs: 30
-    batch_size: 256
-    learning_rate: 0.0006
-    lr_decay: True
-    warmup_tokens: 2560
-    final_tokens: 0
-    num_workers: 4
-    sample_freq: 10000
-  sampling:
-    method: "smart"
-    sample: True
-    top_k: 5
-    temperature: 1.0
-    n_samples: 30
-- name: ' '
-  model_path: '/home/simon/code/namegen/avae/notebooks/plain'
-  data_path: "/home/simon/code/namegen/data/names/french_names_no_accent.txt"
-  outputs_dir: '/home/simon/code/namegen/avae/runs'
-  freeze_layers:
-    -
-  trainer_config:
-    max_epochs: 30
-    batch_size: 256
-    learning_rate: 0.0006
-    lr_decay: True
-    warmup_tokens: 2560
-    final_tokens: 0
-    num_workers: 4
-    sample_freq: 10000
-  sampling:
-    method: "smart"
-    sample: True
-    top_k: 5
-    temperature: 1.0
-    n_samples: 30
-- name: 'frozen'
-  model_path: '/home/simon/code/namegen/avae/notebooks/wiki_model'
-  data_path: "/home/simon/code/namegen/data/names/french_names_no_accent.txt"
-  outputs_dir: '/home/simon/code/namegen/avae/runs'
-  freeze_layers:
-    - "encoder"
-  trainer_config:
-    max_epochs: 30
-    batch_size: 256
-    learning_rate: 0.0006
-    lr_decay: True
-    warmup_tokens: 2560
-    final_tokens: 0
-    num_workers: 4
-    sample_freq: 10000
-  sampling:
-    method: "smart"
-    sample: True
-    top_k: 5
-    temperature: 1.0
-    n_samples: 30
-- name: 'frozen'
-  model_path: '/home/simon/code/namegen/avae/notebooks/french_model'
-  data_path: "/home/simon/code/namegen/data/names/french_names_no_accent.txt"
-  outputs_dir: '/home/simon/code/namegen/avae/runs'
-  freeze_layers:
-    - "encoder"
-  trainer_config:
-    max_epochs: 30
-    batch_size: 256
-    learning_rate: 0.0006
-    lr_decay: True
-    warmup_tokens: 2560
-    final_tokens: 0
-    num_workers: 4
-    sample_freq: 10000
-  sampling:
-    method: "smart"
-    sample: True
-    top_k: 5
-    temperature: 1.0
-    n_samples: 30
+    temperature: 0.8
+    n_samples: 10

@@ -1,8 +1,10 @@
 import torch
+import numpy as np
 
 
 def top_k_logits(logits, k):
     v, ix = torch.topk(logits, k)
+
     out = logits.clone()
     out[out < v[:, [-1]]] = -float("Inf")
     return out
@@ -95,42 +97,83 @@ def decode_word(word: list, inverse_mapping: dict, length: int = 20) -> str:
     return "".join(char_list)
 
 
+def str_to_tensor(context, vae, n_samples, source=None):
+    if not source:
+        source = np.random.choice(vae.sourcetoi.values())
+    source_int = vae.sourcetoi[source]
+
+    context = "0" * (vae.config.block_size - len(context) - 1) + context
+    #     context = "0" * (vae.config.block_size - 1)
+    x = torch.tensor(
+        [source_int] + [vae.stoi[s] for s in context], dtype=torch.long,
+    )[None, ...].to("cuda")
+    x = torch.repeat_interleave(x, n_samples, dim=0)
+    return x
+
+
 def generate_samples(
+    initial_context,
     vae,
     n_samples=10,
-    initial_context="",
     method="smart",
     sample=False,
-    temperature=1.0,
-    top_k=None,
+    temperature=3.0,
+    source=None,
+    top_k=10,
+    second_context=None,
 ):
-    context = (
-        "0" * (vae.config.block_size - len(initial_context)) + initial_context
-    )
 
-    device = "cpu"
-    if torch.cuda.is_available():
-        device = torch.cuda.current_device()
+    x = str_to_tensor(initial_context, vae, n_samples, source=source,)
+    around_word = None
+    if method == "word":
+        x = str_to_tensor("", vae, n_samples, source=source,)
+        around_word = str_to_tensor(
+            initial_context, vae, n_samples, source=source,
+        )
 
-    x = torch.tensor([vae.stoi[s] for s in context], dtype=torch.long,)[
-        None, ...
-    ].to(device)
-    x = torch.repeat_interleave(x, n_samples, dim=0)
+    if method == "interpolate":
+        x = str_to_tensor(
+            "", vae.sourcetoi, vae.config.block_size, n_samples, source=source,
+        )
+        around_word = str_to_tensor(
+            initial_context, vae, n_samples, source=source,
+        )
+        second_context = str_to_tensor(
+            second_context, vae, n_samples, source=source,
+        )
+
+    initial_randomness = len(initial_context) == 0
+
     y = vae.sample(
         x,
-        20,
+        21,
         sample=sample,
         method=method,
         temperature=temperature,
         top_k=top_k,
+        initial_randomness=initial_randomness,
+        around_word=around_word,
+        second_context=second_context,
     )
 
     completions = []
+
+    start = vae.config.block_size - len(initial_context) - 1
+
+    if method in ["word", "interpolate"]:
+        start += len(initial_context)
+
     for sent in y:
-        completion = "".join([vae.itos[int(i)] for i in sent])
-        completions.append(
-            completion[vae.config.block_size - len(initial_context) :].split(
-                "0"
-            )[0]
-        )
+        #         print(y)
+
+        completion = "".join([vae.itos[int(i)] for i in sent[1:]])
+        #         print(completion)
+        #         print(completion)
+        completions.append(completion[start:].split("0")[0])
+    #         import pdb
+
+    #         pdb.set_trace()
+
+    #         completion = completion[vae.config.block_size - len(initial_context) :].split("0")
+    #         completions.append([c for c in completion if c != ""][0])
     return completions

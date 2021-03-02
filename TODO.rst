@@ -1,7 +1,19 @@
-# Make data utils
-# make the network remember dicts so that data is serialised and saved?
+# Experiments - Lexicon
+
+Ablation - does classifier head really help or is it something else?
+Check word interpolation
+
+# Experiments - Names
+
+Transfer learn names with lates model
+Check name generation
+Check name interpolation
+
+# Codebase
+
+Clean up current codebase, remove dead code
+Make  AVAE more encoder decoder agnostic
+Have all utils ready for an app
 
 
-# Experiment: see if the language of pretraining helps
-# Experiment: properly ascertain if transfer learning helps
-# Experiment: freeze some layers or maybe one of decoder / encoder?
+
