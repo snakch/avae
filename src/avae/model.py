@@ -329,10 +329,30 @@ class AttentionNetwork(nn.Module):
         no_decay.add("smart_encoder.pos_emb")
         no_decay.add("smart_encoder.pos_emb")
 
+        for layer in train_config.freeze_layers:
+
+            if layer not in no_decay:
+                no_decay.add(layer)
+
+        decay = set(
+            [
+                layer
+                for layer in decay
+                if layer not in train_config.freeze_layers
+            ]
+        )
+        no_decay = set(
+            [
+                layer
+                for layer in no_decay
+                if layer not in train_config.freeze_layers
+            ]
+        )
+
         # validate that we considered every parameter
         param_dict = {pn: p for pn, p in self.named_parameters()}
         inter_params = decay & no_decay
-        union_params = decay | no_decay
+        union_params = decay | no_decay | set(train_config.freeze_layers)
         assert len(inter_params) == 0, (
             "parameters %s made it into both decay/no_decay sets!"
             % (str(inter_params),)
@@ -697,3 +717,11 @@ class AttentionVae(AttentionNetwork):
                 x = torch.cat((x, ix), dim=1)
 
             return x
+
+    def save(self, path):
+        torch.save(self, path)
+
+    @classmethod
+    def load(cls, path):
+        model = torch.load(path)
+        return model
