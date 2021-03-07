@@ -3,6 +3,7 @@ from collections import OrderedDict
 
 import numpy as np
 import torch
+import torch.autograd.profiler as profiler
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
@@ -119,6 +120,7 @@ class MADE(nn.Module):
             layer.set_mask(m)
 
     def forward(self, x, cond=None):
+
         batch_size, seq_len = x.shape[0], x.shape[1]
         out = x.view(batch_size, seq_len, self.nin)
         for layer in self.net:
@@ -264,6 +266,7 @@ class Block(nn.Module):
         )
 
     def forward(self, x):
+
         x = x + self.attn(self.ln1(x))
         x = x + self.mlp(self.ln2(x))
         return x
@@ -416,6 +419,7 @@ class Encoder(AttentionNetwork):
         # )
 
     def forward(self, idx, targets=None):
+
         b, t = idx.size()
         assert (
             t <= self.block_size
@@ -459,16 +463,16 @@ class Decoder(AttentionNetwork):
 
         self.head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
 
-        self.pred_word_head = nn.Linear(
-            config.n_embd, config.vocab_size, bias=False
-        )
+        # self.pred_word_head = nn.Linear(
+        #     config.n_embd, config.vocab_size, bias=False
+        # )
 
-        self.embedding_head = nn.Linear(
-            config.n_embd, config.n_embd, bias=False
-        )
-        self.sources_label_head = nn.Linear(
-            config.n_embd * config.block_size, config.n_sources, bias=False
-        )
+        # self.embedding_head = nn.Linear(
+        #     config.n_embd, config.n_embd, bias=False
+        # )
+        # self.sources_label_head = nn.Linear(
+        #     config.n_embd * config.block_size, config.n_sources, bias=False
+        # )
 
         self.block_size = config.block_size
         self.apply(self._init_weights)
@@ -562,9 +566,9 @@ class MLP(nn.Module):
 
 
 class AttentionVae(AttentionNetwork):
-    def __init__(self, config, use_made_prior=True):
+    def __init__(self, config, use_made_prior=True, source_decoder=False):
         super().__init__(config)
-
+        self.source_decoder = source_decoder
         self.config = config
         # self.n_chars = (n_chars,)
         # self.latent_dim = latent_dim
@@ -577,8 +581,8 @@ class AttentionVae(AttentionNetwork):
             config.n_embd * config.block_size * 2, config.n_sources
         )
 
-        self.classifier = MLP(
-            config.block_size * config.vocab_size, config.n_sources, [256]
+        self.classifier = nn.Linear(
+            config.block_size * config.vocab_size, config.n_sources,
         )
 
         self.decoder = Decoder(config)
@@ -612,6 +616,11 @@ class AttentionVae(AttentionNetwork):
                 self.config.vocab_size,
                 size=(128,),
             ).cuda()
+            input[:, 0] = torch.randint(
+                self.config.vocab_size - self.config.n_sources,
+                self.config.vocab_size,
+                size=(128,),
+            ).cuda()
 
         m_k, log_s_k, m_v, log_s_v = torch.chunk(self.encoder(word), 4, -1)
 
@@ -636,7 +645,7 @@ class AttentionVae(AttentionNetwork):
             # m_v_smart = torch.ones_like(m_v_smart)
             # log_s_v_smart = torch.ones_like(log_s_v_smart)
 
-            label = None
+            # label = None
             # embedding = None
             # if mutual_info:
             #     label = word[:, 0]
@@ -644,16 +653,26 @@ class AttentionVae(AttentionNetwork):
             #     label = self.to_categorical(label, self.config.n_sources)
 
             #     embedding = Variable(z_k, requires_grad=False)
-
-            x, CE, _, _, _ = self.decoder(
-                x_no_source,
-                z_k,
-                z_v,
-                targets=output,
-                # target_sources=label,
-                # target_embedding=embedding,
-                # target_words=word,
-            )
+            if self.source_decoder:
+                x, CE, _, _, _ = self.decoder(
+                    input,
+                    z_k,
+                    z_v,
+                    targets=output,
+                    # target_sources=label,
+                    # target_embedding=embedding,
+                    # target_words=word,
+                )
+            else:
+                x, CE, _, _, _ = self.decoder(
+                    x_no_source,
+                    z_k,
+                    z_v,
+                    targets=output,
+                    # target_sources=label,
+                    # target_embedding=embedding,
+                    # target_words=word,
+                )
             CE = CE.view(x.shape[0], -1).sum(1)
             # ce_word = ce_word.view(x.shape[0], -1).sum(1)
             # sources_ce *= self.config.lambda_cat
@@ -677,6 +696,7 @@ class AttentionVae(AttentionNetwork):
                 .sum(-1)
                 .mean(1)
             )
+
             # Smart encoder sees partial word instead of full word and attempts
             # to map to the same place in latent space
             # Idea is that the encoder should have global stylistic info and
@@ -691,6 +711,7 @@ class AttentionVae(AttentionNetwork):
             # Ie how do I transfer knowledge about words
             smart_encoder_guess = F.mse_loss(z_k_smart, z_k, reduction="none")
             smart_encoder_guess += F.mse_loss(z_v_smart, z_v, reduction="none")
+
             smart_encoder_guess = smart_encoder_guess.sum(-1).mean(1)
 
             KLD_k_smart = (
@@ -728,7 +749,7 @@ class AttentionVae(AttentionNetwork):
             label = word[:, 0]
             # TODO make only on first char... seems to be working?
             # if rand_word:
-            # label = torch.randint(47, 50, size=(128,)).cuda()
+            #     label = torch.randint(47, 50, size=(128,)).cuda()
 
             if rand_z:
                 z[:, 1:, :] = torch.randn(size=(128, 32, 128)).cuda()
@@ -754,36 +775,38 @@ class AttentionVae(AttentionNetwork):
                 reduction="none",
             )
 
-            word_probas = F.one_hot(output, self.config.vocab_size).float()
-            classification_label = F.softmax(
-                self.classifier(word_probas.view(word_probas.shape[0], -1)),
-                dim=-1,
-            )
-
-            classifier_loss_label = F.cross_entropy(
-                classification_label.view(-1, classification_label.size(-1)),
-                label.view(-1),
-                reduction="none",
-            )
-            # print(
-            #     "a",
-            #     classification_label.view(-1, classification_label.size(-1))[0]
-            #     .detach()
-            #     .cpu()
-            #     .numpy(),
+            # word_probas = F.one_hot(output, self.config.vocab_size).float()
+            # classification_label = F.softmax(
+            #     self.classifier(word_probas.view(word_probas.shape[0], -1)),
+            #     dim=-1,
             # )
+
+            # # Doesn't make sense to euse the same head - the input here isn't logits, it's softmaxed...
+
+            # classifier_loss_label = F.cross_entropy(
+            #     classification_label.view(-1, classification_label.size(-1)),
+            #     label.view(-1),
+            #     reduction="none",
+            # )
+            # # print(
+            # #     "a",
+            # #     classification_label.view(-1, classification_label.size(-1))[0]
+            # #     .detach()
+            # #     .cpu()
+            # #     .numpy(),
+            # # )
 
             classification = F.softmax(
                 self.classifier(x.view(x.shape[0], -1)), dim=-1
             )
-            # print(
-            #     "classification probas ",
-            #     (classification.mean(0).detach().cpu().numpy() * 10000).astype(
-            #         int
-            #     )
-            #     / 100,
-            # )
-            # print(label)
+            # # print(
+            # #     "classification probas ",
+            # #     (classification.mean(0).detach().cpu().numpy() * 10000).astype(
+            # #         int
+            # #     )
+            # #     / 100,
+            # # )
+            # # print(label)
 
             classifier_loss = F.cross_entropy(
                 classification.view(-1, classification.size(-1)),
@@ -800,7 +823,7 @@ class AttentionVae(AttentionNetwork):
             # )
 
             x_smart, _, _, _, _ = self.decoder(
-                x_no_source,
+                input,
                 z_k_smart,
                 z_v_smart,
                 targets=output,
@@ -818,7 +841,7 @@ class AttentionVae(AttentionNetwork):
                 reduction="none",
             )
 
-            label = self.to_categorical(label, self.config.n_sources)
+            # label = self.to_categorical(label, self.config.n_sources)
 
             out = self.prior_network(z)
             mu, log_std = out.chunk(2, dim=-1)
@@ -839,7 +862,7 @@ class AttentionVae(AttentionNetwork):
                 + supervision_smart_loss * self.config.supervision_lambda
                 + classifier_loss * self.config.supervision_lambda
                 + classifier_smart_loss * self.config.supervision_lambda
-                + classifier_loss_label * self.config.supervision_lambda
+                # + classifier_loss_label * self.config.supervision_lambda
                 # + ce_word
                 # + self.config.lambda_cat * sources_ce
                 # + self.config.lambda_cont * embeddings_mse
@@ -854,8 +877,9 @@ class AttentionVae(AttentionNetwork):
                 OrderedDict(
                     loss=loss,
                     supervision_loss=supervision_loss,
+                    supervision_smart_loss=supervision_smart_loss,
                     classifier_smart_loss=classifier_smart_loss,
-                    classifier_loss_label=classifier_loss_label,
+                    # classifier_loss_label=classifier_loss_label,
                     classifier_loss=classifier_loss,
                     ce=CE,
                     # ce_word=ce_word,
@@ -867,8 +891,10 @@ class AttentionVae(AttentionNetwork):
                     smart_encoder_guess=smart_encoder_guess,
                 ),
             )
-
-        x, _, _, _, _ = self.decoder(x_no_source, z_k, z_v)
+        if self.source_decoder:
+            x, _, _, _, _ = self.decoder(input, z_k, z_v)
+        else:
+            x, _, _, _, _ = self.decoder(x_no_source, z_k, z_v)
 
         return x
 
@@ -910,7 +936,7 @@ class AttentionVae(AttentionNetwork):
         elif method == "word":
 
             m_k, log_s_k, m_v, log_s_v = torch.chunk(
-                self.smart_encoder(context), 4, -1
+                self.encoder(context), 4, -1
             )
 
             z_k = self.reparametrize(m_k, log_s_k)
@@ -1012,7 +1038,8 @@ class AttentionVae(AttentionNetwork):
                 #     x
                 #     if x.size(1) <= self.config.block_size
                 x_cond = x[:, -self.config.block_size :]
-                x_cond[:, 0] = 0
+                if not self.source_decoder:
+                    x_cond[:, 0] = 0
                 if method == "smart":
 
                     z_k, z_v = self.sample_latent(
