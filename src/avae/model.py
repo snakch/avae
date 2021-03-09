@@ -3,7 +3,8 @@ from collections import OrderedDict
 
 import numpy as np
 import torch
-import torch.autograd.profiler as profiler
+
+# import torch.autograd.profiler as profiler
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable

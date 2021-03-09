@@ -8,8 +8,6 @@ from fuzzywuzzy import process
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from avae.utils import decode_word
-
 
 @dataclass
 class TrainerConfig:

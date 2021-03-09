@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 import yaml
-
+import re
 from avae.dataset import CharDataset
 from avae.model import AttentionVae
 from avae.trainer import Trainer, TrainerConfig
@@ -37,6 +37,15 @@ def clean_word(word):
     return word
 
 
+def validate(word):
+    REGEX = re.compile("[^a-zàèéê]")
+    if REGEX.findall(word):
+        return False
+    if len(word) <= 2:
+        return False
+    return True
+
+
 def load_data(paths):
 
     names_dict = {}
@@ -46,6 +55,7 @@ def load_data(paths):
         with open(path, "r") as f:
             for word in f:
                 names.append(clean_word(word))
+        names = [name for name in names if validate(name)]
         names_dict[source] = names
     return names_dict
 
@@ -92,10 +102,10 @@ def get_datasets(names_dict, maxlen, vae):
 def get_sample(model, config, unique_train_words, source, context=""):
 
     samples = generate_samples(
+        context,
         model,
         source=source,
         n_samples=config["n_samples"],
-        initial_context=context,
         method=config["method"],
         sample=config["sample"],
         top_k=config["top_k"],

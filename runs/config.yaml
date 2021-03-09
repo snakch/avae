@@ -1,5 +1,5 @@
 - name: 'unfrozen'
-  model_path: '/home/simon/code/namegen/avae/notebooks/latest_current'
+  model_path: '/home/simon/code/namegen/avae/notebooks/latest_current_5'
   data_paths: 
     english:  "/home/simon/code/namegen/data/names/us_names.txt"
     french : "/home/simon/code/namegen/data/names/french_names_no_accent.txt"
@@ -19,5 +19,5 @@
     method: "smart"
     sample: True
     top_k: 5
-    temperature: 0.8
+    temperature: 0.5
     n_samples: 10
