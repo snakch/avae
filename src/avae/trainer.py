@@ -48,10 +48,6 @@ class Trainer:
             self.model = self.model.to(self.device)
 
         if hasattr(model, "stoi"):
-            # assert model.stoi == train_dataset.stoi
-            # assert model.itos == train_dataset.itos
-            # assert model.sourcetoi == train_dataset.sourcetoi
-            # assert model.itosource == train_dataset.itosource
             train_dataset.stoi = model.stoi
             train_dataset.itos = model.itos
             train_dataset.sourcetoi = model.sourcetoi

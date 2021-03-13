@@ -82,29 +82,26 @@ class CharDataset(Dataset):
             self.itos = {i: ch for i, ch in enumerate(self.chars)}
 
         # Compute source-specific mappings
-        offset = len(self.chars)
         unique_sources = set(self.source_list)
         self.unique_sources = list(unique_sources)
 
         if not sourcetoi:
             self.sourcetoi = {
-                source: i + offset for i, source in enumerate(unique_sources)
+                source: i + 1 for i, source in enumerate(unique_sources)
             }
-            max_idx = max(self.sourcetoi.values())
-            self.sourcetoi["_random"] = max_idx + 1
+            self.sourcetoi["_random"] = 0
         if not itosource:
             self.itosource = {
-                (i + offset): source for i, source in enumerate(unique_sources)
+                (i + 1): source for i, source in enumerate(unique_sources)
             }
-            max_idx = max(self.itosource.keys())
-            self.itosource[max_idx + 1] = "_random"
+            self.itosource[0] = "_random"
 
-        for k, v in self.itosource.items():
-            if k not in self.itos.keys():
-                self.itos[k] = v
-        for k, v in self.sourcetoi.items():
-            if v not in self.stoi.values():
-                self.stoi[k] = v
+        # for k, v in self.itosource.items():
+        #     if k not in self.itos.keys():
+        #         self.itos[k] = v
+        # for k, v in self.sourcetoi.items():
+        #     if v not in self.stoi.values():
+        #         self.stoi[k] = v
 
     def __len__(self):
         return len(self.idx_to_word) - self.block_size

@@ -106,7 +106,7 @@ def str_to_tensor(context, vae, n_samples, source=None):
     #     context = "0" * (vae.config.block_size - 1)
     x = torch.tensor(
         [source_int] + [vae.stoi[s] for s in context], dtype=torch.long,
-    )[None, ...].to("cuda")
+    )[None, ...].to(vae.device)
     x = torch.repeat_interleave(x, n_samples, dim=0)
     return x
 

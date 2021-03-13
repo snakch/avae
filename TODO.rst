@@ -1,19 +1,14 @@
-# Experiments - Lexicon
+Trainer: use validation set properly
 
-Ablation - does classifier head really help or is it something else?
-Check word interpolation
+New lexicons
 
-# Experiments - Names
+Experiment with dataset noise
 
-Transfer learn names with lates model
-Check name generation
-Check name interpolation
+Device: handle device properly, like in app code
 
-# Codebase
+Speed up: current implmentation is a little slow
 
-Clean up current codebase, remove dead code
-Make  AVAE more encoder decoder agnostic
-Have all utils ready for an app
+
 
 
 

@@ -11,11 +11,6 @@ from torch.autograd import Variable
 
 from avae.utils import top_k_logits
 
-# TODO understand IARFlow
-# TODO not clear that the structure of the latent space, ie it being a k,q
-# encoding space is actually helpfull....
-# TODO Have the encoder encode the whole word, as in not try to
-
 
 class GPTConfig:
     """ base GPT config, params common to all GPT versions """
@@ -599,6 +594,10 @@ class AttentionVae(AttentionNetwork):
             f"{sum(p.numel() for p in self.parameters())}"
         )
 
+        self.device = torch.device(
+            "cuda:0" if torch.cuda.is_available() else "cpu"
+        )
+
     def forward(
         self,
         input,
@@ -613,15 +612,11 @@ class AttentionVae(AttentionNetwork):
 
         if rand_word:
             word[:, 0] = torch.randint(
-                self.config.vocab_size - self.config.n_sources,
-                self.config.vocab_size,
-                size=(128,),
-            ).cuda()
+                0, self.config.n_sources, size=(128,),
+            ).to(self.device)
             input[:, 0] = torch.randint(
-                self.config.vocab_size - self.config.n_sources,
-                self.config.vocab_size,
-                size=(128,),
-            ).cuda()
+                0, self.config.n_sources, size=(128,),
+            ).to(self.device)
 
         m_k, log_s_k, m_v, log_s_v = torch.chunk(self.encoder(word), 4, -1)
 
@@ -748,14 +743,6 @@ class AttentionVae(AttentionNetwork):
             z_smart = torch.cat([z_k_smart, z_v_smart], axis=2)
 
             label = word[:, 0]
-            # TODO make only on first char... seems to be working?
-            # if rand_word:
-            #     label = torch.randint(47, 50, size=(128,)).cuda()
-
-            if rand_z:
-                z[:, 1:, :] = torch.randn(size=(128, 32, 128)).cuda()
-
-            label = self.to_categorical(label, self.config.n_sources)
 
             supervision = self.supervisor(z.view(z.shape[0], -1))
             supervision = F.softmax(supervision, dim=-1)
@@ -1025,7 +1012,7 @@ class AttentionVae(AttentionNetwork):
                     method=method,
                     second_context=second_context,
                     alpha=torch.as_tensor(np.linspace(0, 1, x.shape[0])).to(
-                        "cuda"
+                        self.device
                     ),
                 )
 
@@ -1090,6 +1077,19 @@ class AttentionVae(AttentionNetwork):
                 # print(x.shape)
             return x
 
+    def set_n_sources(self, n_sources):
+        self.supervisor = nn.Linear(
+            self.config.n_embd * self.config.block_size * 2, n_sources
+        )
+
+        self.supervisor.to(self.device)
+
+        self.classifier = nn.Linear(
+            self.config.block_size * self.config.vocab_size, n_sources,
+        )
+
+        self.supervisor.to(self.device)
+
     def save(self, path):
         torch.save(self, path)
 
@@ -1098,12 +1098,16 @@ class AttentionVae(AttentionNetwork):
         model = torch.load(path)
         return model
 
-    def to_categorical(self, y, num_columns):
-        """Returns one-hot encoded Variable"""
+    # def to_categorical(self, y, num_columns):
+    #     """Returns one-hot encoded Variable"""
 
-        # y_cat = torch.zeros((y.shape[0], num_columns)).to(y.device)
-        y_cat = y - y.min()
+    #     # y_cat = torch.zeros((y.shape[0], num_columns)).to(y.device)
+    #     y_cat = y - y.min()
 
-        LongTensor = torch.cuda.LongTensor
+    #     LongTensor = torch.cuda.LongTensor
 
-        return Variable(LongTensor(y_cat), requires_grad=False)
+    #     import pdb
+
+    #     pdb.set_trace()
+
+    #     return Variable(LongTensor(y_cat), requires_grad=False)
