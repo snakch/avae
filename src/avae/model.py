@@ -12,6 +12,13 @@ from torch.autograd import Variable
 from avae.utils import top_k_logits
 
 
+def prod(tu):
+    acc = 1
+    for t in tu:
+        acc *= t
+    return acc
+
+
 class GPTConfig:
     """ base GPT config, params common to all GPT versions """
 
@@ -22,10 +29,11 @@ class GPTConfig:
     lambda_cont = 1.0
     supervision_lambda = 5.0
 
-    def __init__(self, vocab_size, block_size, n_sources, **kwargs):
+    def __init__(self, vocab_size, block_size, n_source_types, **kwargs):
         self.vocab_size = vocab_size
         self.block_size = block_size
-        self.n_sources = n_sources
+        self.n_source_types = n_source_types
+        self.n_sources_total = prod(n_source_types)
         for k, v in kwargs.items():
             setattr(self, k, v)
 
@@ -574,11 +582,11 @@ class AttentionVae(AttentionNetwork):
         self.smart_encoder = Encoder(config)
 
         self.supervisor = nn.Linear(
-            config.n_embd * config.block_size * 2, config.n_sources
+            config.n_embd * config.block_size * 2, config.n_sources_total
         )
 
         self.classifier = nn.Linear(
-            config.block_size * config.vocab_size, config.n_sources,
+            config.block_size * config.vocab_size, config.n_sources_total,
         )
 
         self.decoder = Decoder(config)
@@ -606,17 +614,19 @@ class AttentionVae(AttentionNetwork):
         word,
         training=False,
         mutual_info=True,
-        rand_word=False,
+        rand_source: tuple = None,
         rand_z=False,
     ):
 
-        if rand_word:
-            word[:, 0] = torch.randint(
-                0, self.config.n_sources, size=(128,),
-            ).to(self.device)
-            input[:, 0] = torch.randint(
-                0, self.config.n_sources, size=(128,),
-            ).to(self.device)
+        if rand_source is not None:
+
+            for source_idx in rand_source:
+                word[:, source_idx] = torch.randint(
+                    0, self.config.n_source_types[source_idx], size=(128,),
+                ).to(self.device)
+                input[:, source_idx] = torch.randint(
+                    0, self.config.n_source_types[sour], size=(128,),
+                ).to(self.device)
 
         m_k, log_s_k, m_v, log_s_v = torch.chunk(self.encoder(word), 4, -1)
 
@@ -742,93 +752,71 @@ class AttentionVae(AttentionNetwork):
             z = torch.cat([z_k, z_v], axis=2)
             z_smart = torch.cat([z_k_smart, z_v_smart], axis=2)
 
-            label = word[:, 0]
+            # Get labels for each source type and compute losses
+            labels = word[:, : len(self.config.n_source_types)]
 
             supervision = self.supervisor(z.view(z.shape[0], -1))
-            supervision = F.softmax(supervision, dim=-1)
-
-            supervision_loss = F.cross_entropy(
-                supervision.view(-1, supervision.size(-1)),
-                label.view(-1),
-                reduction="none",
+            partitions = self.partition_logits(
+                supervision, self.config.n_source_types
             )
+
+            supervision_loss = 0
+            for i, partition in enumerate(partitions):
+                partition = F.softmax(partition, dim=-1)
+                supervision_loss += F.cross_entropy(
+                    partition.view(-1, partition.size(-1)),
+                    labels[:, i].view(-1),
+                    reduction="none",
+                )
+
             supervision_smart = self.supervisor(
                 z_smart.view(z_smart.shape[0], -1)
             )
-            supervision_smart = F.softmax(supervision_smart, dim=-1)
-
-            supervision_smart_loss = F.cross_entropy(
-                supervision_smart.view(-1, supervision_smart.size(-1)),
-                label.view(-1),
-                reduction="none",
+            partitions = self.partition_logits(
+                supervision_smart, self.config.n_source_types
             )
+            supervision_smart_loss = 0
+            for i, partition in enumerate(partitions):
+                partition = F.softmax(partition, dim=-1)
+                supervision_smart_loss += F.cross_entropy(
+                    partition.view(-1, partition.size(-1)),
+                    labels[:, i].view(-1),
+                    reduction="none",
+                )
 
-            # word_probas = F.one_hot(output, self.config.vocab_size).float()
-            # classification_label = F.softmax(
-            #     self.classifier(word_probas.view(word_probas.shape[0], -1)),
-            #     dim=-1,
-            # )
+            classification = self.classifier(x.view(x.shape[0], -1))
 
-            # # Doesn't make sense to euse the same head - the input here isn't logits, it's softmaxed...
-
-            # classifier_loss_label = F.cross_entropy(
-            #     classification_label.view(-1, classification_label.size(-1)),
-            #     label.view(-1),
-            #     reduction="none",
-            # )
-            # # print(
-            # #     "a",
-            # #     classification_label.view(-1, classification_label.size(-1))[0]
-            # #     .detach()
-            # #     .cpu()
-            # #     .numpy(),
-            # # )
-
-            classification = F.softmax(
-                self.classifier(x.view(x.shape[0], -1)), dim=-1
+            partitions = self.partition_logits(
+                classification, self.config.n_source_types
             )
-            # # print(
-            # #     "classification probas ",
-            # #     (classification.mean(0).detach().cpu().numpy() * 10000).astype(
-            # #         int
-            # #     )
-            # #     / 100,
-            # # )
-            # # print(label)
-
-            classifier_loss = F.cross_entropy(
-                classification.view(-1, classification.size(-1)),
-                label.view(-1),
-                reduction="none",
-            )
-
-            # print(
-            #     "b",
-            #     classification.view(-1, classification.size(-1))[0]
-            #     .detach()
-            #     .cpu()
-            #     .numpy(),
-            # )
+            classifier_loss = 0
+            for i, partition in enumerate(partitions):
+                partition = F.softmax(partition, dim=-1)
+                classifier_loss += F.cross_entropy(
+                    partition.view(-1, partition.size(-1)),
+                    labels[:, i].view(-1),
+                    reduction="none",
+                )
 
             x_smart, _, _, _, _ = self.decoder(
-                input,
-                z_k_smart,
-                z_v_smart,
-                targets=output,
-                # target_sources=label,
-                # target_embedding=embedding,
-                # target_words=word,
+                input, z_k_smart, z_v_smart, targets=output,
             )
 
-            classification_smart = F.softmax(
-                self.classifier(x_smart.view(x_smart.shape[0], -1)), dim=-1
-            )
-            classifier_smart_loss = F.cross_entropy(
-                classification_smart.view(-1, classification_smart.size(-1)),
-                label.view(-1),
-                reduction="none",
+            classification_smart = self.classifier(
+                x_smart.view(x_smart.shape[0], -1)
             )
 
+            partitions = self.partition_logits(
+                classification_smart, self.config.n_source_types
+            )
+            classifier_smart_loss = 0
+            for i, partition in enumerate(partitions):
+                partition = F.softmax(partition, dim=-1)
+                classifier_smart_loss += F.cross_entropy(
+                    partition.view(-1, partition.size(-1)),
+                    labels[:, i].view(-1),
+                    reduction="none",
+                )
             # label = self.to_categorical(label, self.config.n_sources)
 
             out = self.prior_network(z)
@@ -1026,8 +1014,6 @@ class AttentionVae(AttentionNetwork):
                 #     x
                 #     if x.size(1) <= self.config.block_size
                 x_cond = x[:, -self.config.block_size :]
-                if not self.source_decoder:
-                    x_cond[:, 0] = 0
                 if method == "smart":
 
                     z_k, z_v = self.sample_latent(
@@ -1050,45 +1036,51 @@ class AttentionVae(AttentionNetwork):
                         logits / 3 * temperature, self.config.vocab_size
                     )
                     initial_flag = True
-                    # print(flag)
 
                 # optionally crop probabilities to only the top k options
                 elif top_k is not None:
                     logits = top_k_logits(logits, top_k)
-                    # print(flag)
 
-                logits[:, -self.config.n_sources :] = -float("Inf")
                 # apply softmax to convert to probabilities
                 probs = F.softmax(logits, dim=-1)
-                # print(probs.mean(0))
-                # if k == 0:
-                # print(probs.mean(axis=0))
+
                 # sample from the distribution or take the most likely
                 if sample or initial_flag:
                     ix = torch.multinomial(probs, num_samples=1)
                 else:
                     _, ix = torch.topk(probs, k=1, dim=-1)
-                    if initial_flag:
-                        print(ix)
-                # if k == 0:
-                # print(ix)
+
                 # append to the sequence and continue
                 x = torch.cat((x, ix), dim=1)
-                # print(x.shape)
+                print(x.shape)
             return x
 
-    def set_n_sources(self, n_sources):
+    def set_n_source_types(self, n_source_types: tuple):
+        self.config.n_source_types = n_source_types
+        self.config.n_sources_total = prod(n_source_types)
         self.supervisor = nn.Linear(
-            self.config.n_embd * self.config.block_size * 2, n_sources
+            self.config.n_embd * self.config.block_size * 2,
+            self.config.n_sources_total,
         )
 
         self.supervisor.to(self.device)
 
         self.classifier = nn.Linear(
-            self.config.block_size * self.config.vocab_size, n_sources,
+            self.config.block_size * self.config.vocab_size,
+            self.config.n_sources_total,
         )
 
         self.supervisor.to(self.device)
+
+    def partition_logits(self, logits, partition_sizes):
+        partitions = []
+        threshold = 0
+        next_threshold = 0
+        for partition_size in partition_sizes:
+            next_threshold += threshold + partition_size
+            partitions.append(logits[..., threshold:next_threshold])
+            threshold = next_threshold
+        return partitions
 
     def save(self, path):
         torch.save(self, path)
@@ -1097,17 +1089,3 @@ class AttentionVae(AttentionNetwork):
     def load(cls, path):
         model = torch.load(path)
         return model
-
-    # def to_categorical(self, y, num_columns):
-    #     """Returns one-hot encoded Variable"""
-
-    #     # y_cat = torch.zeros((y.shape[0], num_columns)).to(y.device)
-    #     y_cat = y - y.min()
-
-    #     LongTensor = torch.cuda.LongTensor
-
-    #     import pdb
-
-    #     pdb.set_trace()
-
-    #     return Variable(LongTensor(y_cat), requires_grad=False)

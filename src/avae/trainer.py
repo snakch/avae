@@ -8,6 +8,8 @@ from fuzzywuzzy import process
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
+from avae.utils import generate_samples
+
 
 @dataclass
 class TrainerConfig:
@@ -58,6 +60,8 @@ class Trainer:
             model.itos = train_dataset.itos
             model.sourcetoi = train_dataset.sourcetoi
             model.itosource = train_dataset.itosource
+
+        model.source_types = train_dataset.source_types
 
         self.losses = defaultdict(list)
 
@@ -188,40 +192,24 @@ class Trainer:
     def print_samples(self):
 
         # create an empty word context.
-        source = np.random.choice(self.train_dataset.unique_sources)
-        source_int = self.train_dataset.sourcetoi[source]
+        samples = generate_samples(
+            initial_context="",
+            vae=self.model,
+            n_samples=10,
+            method="smart",
+            sample=True,
+            temperature=1.0,
+            source_dict=None,
+            top_k=8,
+        )
 
-        context = "0" * (self.model.config.block_size - 1)
-        x = torch.tensor(
-            [source_int] + [self.train_dataset.stoi[s] for s in context],
-            dtype=torch.long,
-        )[None, ...].to(self.device)
-        x = torch.repeat_interleave(x, 5, dim=0)
+        for sample in samples:
 
-        # sample some words
-        with torch.no_grad():
-            y = self.model.sample(
-                x, 20, temperature=1.0, sample=True, top_k=10,
-            )
-        for gen_word in y:
-            # sample = decode_word(
-            #     gen_word.cpu().numpy(),
-            #     self.train_dataset.itos,
-            #     length=self.model.config.block_size,
-            # )
-
-            completion = "".join(
-                [self.train_dataset.itos[int(i)] for i in gen_word[1:]]
-            )
-            sample = completion[self.model.config.block_size - 1 :].split("0")[
-                0
-            ]
-            sample += " " * (self.model.config.block_size - len(sample))
             if self.log_nearest_words:
 
                 # Find the nearest term in the training set.
                 match = process.extract(
-                    sample, self.train_dataset.unique_word_list, limit=1
+                    sample, self.df["word"].unique().tolist(), limit=1
                 )[0][0]
 
                 sample += f"\t closes match: {match}"
