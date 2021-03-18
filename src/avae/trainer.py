@@ -209,7 +209,9 @@ class Trainer:
 
                 # Find the nearest term in the training set.
                 match = process.extract(
-                    sample, self.df["word"].unique().tolist(), limit=1
+                    sample,
+                    self.train_dataset.df["word"].unique().tolist(),
+                    limit=1,
                 )[0][0]
 
                 sample += f"\t closes match: {match}"

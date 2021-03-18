@@ -28,11 +28,10 @@ class CharDataset(Dataset):
         self.itosource = itosource
 
         # Drop words which are too long
-        df = df.loc[df["word"].str.len() <= block_size]
+        df = df.loc[df["word"].str.len() < block_size]
 
         # Get source type information
         self.source_types = [col for col in df.columns if col != "word"]
-        self.n_source_types = len(self.source_types)
         unique_sources = {
             source: list(sorted(df[source].unique()))
             for source in self.source_types
@@ -40,7 +39,9 @@ class CharDataset(Dataset):
         for k, v in unique_sources.items():
             if "_random" not in v:
                 unique_sources[k] = ["_random"] + v
-
+        self.n_source_type = tuple(
+            [len(unique) for unique in unique_sources.values()]
+        )
         # n_sources = [len(unique_sources[source]) for source in source_types]
 
         if chars is not None:
@@ -62,12 +63,12 @@ class CharDataset(Dataset):
 
         self.chars = ["0"] + self.chars
 
-        lengths = df["word"].str.len().tolist()
+        lengths = (df["word"].str.len() + 1).tolist()
 
         # Get indices and lengths of each word
         self.idx_to_row = np.repeat(np.arange(len(self.word_list)), lengths)
         self.idx_to_starting_char = np.concatenate(
-            [np.arange(len(word)) for word in self.word_list]
+            [np.arange(len(word) + 1) for word in self.word_list]
         )
 
         print("characters: ")
@@ -110,7 +111,7 @@ class CharDataset(Dataset):
         # grab a chunk of (block_size + 1) characters from the data
 
         starting_char = self.idx_to_starting_char[idx]
-        word = self.df.iloc[self.idx_to_row[idx]].word
+        word = self.df.iloc[self.idx_to_row[idx]].word + "0"
 
         source_prefix = self._get_source_prefix(idx)
 

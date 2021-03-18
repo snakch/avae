@@ -625,7 +625,7 @@ class AttentionVae(AttentionNetwork):
                     0, self.config.n_source_types[source_idx], size=(128,),
                 ).to(self.device)
                 input[:, source_idx] = torch.randint(
-                    0, self.config.n_source_types[sour], size=(128,),
+                    0, self.config.n_source_types[source_idx], size=(128,),
                 ).to(self.device)
 
         m_k, log_s_k, m_v, log_s_v = torch.chunk(self.encoder(word), 4, -1)
@@ -1052,7 +1052,6 @@ class AttentionVae(AttentionNetwork):
 
                 # append to the sequence and continue
                 x = torch.cat((x, ix), dim=1)
-                print(x.shape)
             return x
 
     def set_n_source_types(self, n_source_types: tuple):

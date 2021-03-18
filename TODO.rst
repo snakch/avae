@@ -1,12 +1,10 @@
 Trainer: use validation set properly
 
-New lexicons
+Refactor: the way we're handling sources is clunky and hard to maintain
+Beta vae: check out some tricks to get better disentangled encoding
+Progressive network: investigate pretraining + freezing + adding layers
 
-Experiment with dataset noise
 
-Device: handle device properly, like in app code
-
-Speed up: current implmentation is a little slow
 
 
 

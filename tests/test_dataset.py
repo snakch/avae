@@ -43,7 +43,7 @@ block_size = 20
 
 expected_x1 = "0" * block_size
 expected_y1 = "0" * (block_size - 1) + "L"
-expected_word = "0" * (block_size - len("Lorem")) + "Lorem"
+expected_word = "0" * (block_size - 1 - len("Lorem")) + "Lorem0"
 expected_sources_1 = ["latin", "A"]
 expected_no_sources = ["_random", "_random"]
 
@@ -54,9 +54,7 @@ expected_sources_2 = ("latin", "A")
 
 def test_dataset():
     dataset = CharDataset(df, block_size)
-    import pdb
 
-    pdb.set_trace()
     x, x_no_source, y, word = dataset[0]
 
     x_chars = get_chars(x, dataset)
