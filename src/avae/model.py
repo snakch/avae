@@ -22,6 +22,7 @@ def prod(tu):
 class GPTConfig:
     """ base GPT config, params common to all GPT versions """
 
+    KLD_beta = 1.0
     embd_pdrop = 0.1
     resid_pdrop = 0.1
     attn_pdrop = 0.1
@@ -231,7 +232,7 @@ class BasicAttention(nn.Module):
 
         # batch_size, n_head, seq_len, n_embd // n_head
         k = key.view(B, T, self.n_head, C // self.n_head).transpose(1, 2)
-        v = key.view(B, T, self.n_head, C // self.n_head).transpose(1, 2)
+        v = value.view(B, T, self.n_head, C // self.n_head).transpose(1, 2)
         q = (
             self.query(x)
             .view(B, T, self.n_head, C // self.n_head)
@@ -467,33 +468,15 @@ class Decoder(AttentionNetwork):
 
         self.head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
 
-        # self.pred_word_head = nn.Linear(
-        #     config.n_embd, config.vocab_size, bias=False
-        # )
-
-        # self.embedding_head = nn.Linear(
-        #     config.n_embd, config.n_embd, bias=False
-        # )
-        # self.sources_label_head = nn.Linear(
-        #     config.n_embd * config.block_size, config.n_sources, bias=False
-        # )
-
         self.block_size = config.block_size
         self.apply(self._init_weights)
 
     def forward(
-        self,
-        idx,
-        z_k,
-        z_v,
-        targets=None,
-        target_embedding=None,
-        target_sources=None,
-        target_words=None,
+        self, idx, z_k, z_v, targets=None,
     ):
-        # print(idx)
 
         b, t = idx.size()
+
         assert (
             t <= self.block_size
         ), "Can't forward, model block size is exhausted"
@@ -519,25 +502,6 @@ class Decoder(AttentionNetwork):
                 targets.view(-1),
                 reduction="none",
             )
-        # if target_words is not None:
-        #     word_logits = self.pred_word_head(x)
-        #     word_loss = F.cross_entropy(
-        #         word_logits.view(-1, word_logits.size(-1)),
-        #         target_words.view(-1),
-        #         reduction="none",
-        #     )
-
-        # if target_sources is not None:
-        #     sources_loss = F.cross_entropy(
-        #         self.sources_label_head(x.reshape(x.shape[0], -1)),
-        #         target_sources,
-        #         reduction="none",
-        #     )
-        # if target_embedding is not None:
-        #     embeddings_loss = F.mse_loss(
-        #         self.embedding_head(x), target_embedding, reduction="none"
-        #     )
-
         return logits, loss, sources_loss, embeddings_loss, word_loss
 
 
@@ -616,6 +580,7 @@ class AttentionVae(AttentionNetwork):
         mutual_info=True,
         rand_source: tuple = None,
         rand_z=False,
+        c_coeff=0.0,
     ):
 
         if rand_source is not None:
@@ -842,8 +807,8 @@ class AttentionVae(AttentionNetwork):
                 # + ce_word
                 # + self.config.lambda_cat * sources_ce
                 # + self.config.lambda_cont * embeddings_mse
-                + KLD
-                + KLD_smart
+                + (KLD + c_coeff) * self.config.KLD_beta
+                + KLD_smart * self.config.KLD_beta
                 + smart_encoder_guess
                 - prior_log_prob
             )
@@ -1015,7 +980,6 @@ class AttentionVae(AttentionNetwork):
                 #     if x.size(1) <= self.config.block_size
                 x_cond = x[:, -self.config.block_size :]
                 if method == "smart":
-
                     z_k, z_v = self.sample_latent(
                         x[:, -self.config.block_size :],
                         self.config.block_size,

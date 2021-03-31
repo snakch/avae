@@ -133,6 +133,7 @@ def generate_samples(
     top_k=10,
     second_context=None,
 ):
+    # print(initial_context)
 
     x = str_to_tensor(
         initial_context, vae, n_samples, source_dict=source_dict,

@@ -26,6 +26,8 @@ class TrainerConfig:
     num_workers: int = 0
     sample_freq: int = 1000
     freeze_layers: list = ()
+    c_increment: float = 0.0
+    max_c: float = 10.0
 
 
 class Trainer:
@@ -42,24 +44,24 @@ class Trainer:
         self.test_dataset = test_dataset
         self.config = config
         self.log_nearest_words = log_nearest_words
-
+        self.c_coeff = 0.0
         self.device = "cpu"
         if torch.cuda.is_available():
             self.device = torch.cuda.current_device()
             # self.model = torch.nn.DataParallel(self.model).to(self.device)
             self.model = self.model.to(self.device)
 
-        if hasattr(model, "stoi"):
-            train_dataset.stoi = model.stoi
-            train_dataset.itos = model.itos
-            train_dataset.sourcetoi = model.sourcetoi
-            train_dataset.itosource = model.itosource
+            # if hasattr(model, "stoi"):
+            # train_dataset.stoi = model.stoi
+            # train_dataset.itos = model.itos
+            # train_dataset.sourcetoi = model.sourcetoi
+            # train_dataset.itosource = model.itosource
 
-        else:
-            model.stoi = train_dataset.stoi
-            model.itos = train_dataset.itos
-            model.sourcetoi = train_dataset.sourcetoi
-            model.itosource = train_dataset.itosource
+            # # else:
+        model.stoi = train_dataset.stoi
+        model.itos = train_dataset.itos
+        model.sourcetoi = train_dataset.sourcetoi
+        model.itosource = train_dataset.itosource
 
         model.source_types = train_dataset.source_types
 
@@ -113,20 +115,21 @@ class Trainer:
         )
 
         epoch_losses = defaultdict(list)
-        pbar = (
-            tqdm(enumerate(loader), total=len(loader))
-            if is_train
-            else enumerate(loader)
-        )
+        pbar = tqdm(enumerate(loader), total=len(loader))
+
         for it, (x, x_no_source, y, word) in pbar:
-            # print(x)
             x = x.to(self.device)
             x_no_source = x_no_source.to(self.device)
             y = y.to(self.device)
             word = word.to(self.device)
             with torch.set_grad_enabled(is_train):
                 logits, loss_dict = self.model(
-                    x, x_no_source, y, word, training=True
+                    x,
+                    x_no_source,
+                    y,
+                    word,
+                    training=True,
+                    c_coeff=self.c_coeff,
                 )
 
                 loss = loss_dict["loss"].mean()
@@ -141,6 +144,9 @@ class Trainer:
                     self.model.parameters(), self.config.grad_norm_clip
                 )
                 optimizer.step()
+
+                if self.c_coeff <= self.config.max_c:
+                    self.c_coeff += self.config.c_increment
 
                 if self.config.lr_decay:
                     self.tokens += (y >= 0).sum()
@@ -180,7 +186,6 @@ class Trainer:
                 "test_" + key: np.mean(val)
                 for key, val in epoch_losses.items()
             }
-            # print(f"Test loss: {test_losses['test_loss']}")
             return test_losses
         return epoch_losses
 

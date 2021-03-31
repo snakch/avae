@@ -111,12 +111,13 @@ class CharDataset(Dataset):
         # grab a chunk of (block_size + 1) characters from the data
 
         starting_char = self.idx_to_starting_char[idx]
-        word = self.df.iloc[self.idx_to_row[idx]].word + "0"
+        word = self.df.iloc[self.idx_to_row[idx]].word
+        end_padded_word = word + "0"
 
         source_prefix = self._get_source_prefix(idx)
 
         padding = "0" * (self.block_size - starting_char)
-        chunk = padding + word[: starting_char + 1]
+        chunk = padding + end_padded_word[: starting_char + 1]
         chunk_int = source_prefix + [self.stoi[s] for s in chunk]
 
         no_source_chunk_int = [0] * len(source_prefix) + [
@@ -135,7 +136,8 @@ class CharDataset(Dataset):
         x_no_source = torch.tensor(no_source_chunk_int[:-1], dtype=torch.long)
         y = torch.tensor(no_source_chunk_int[1:], dtype=torch.long)
         word = torch.tensor(word_int, dtype=torch.long)
-        return x, x_no_source, y, word
+        # return x, x_no_source, y, word
+        return x, x_no_source, y, x
 
 
 def get_source_to_index_map(source):
