@@ -400,6 +400,7 @@ class Encoder(AttentionNetwork):
         super().__init__(config)
 
         self.tok_emb = nn.Embedding(config.vocab_size, config.n_embd)
+
         self.pos_emb = nn.Parameter(
             torch.zeros(1, config.block_size, config.n_embd)
         )

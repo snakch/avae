@@ -18,7 +18,6 @@ class CharDataset(Dataset):
     ):
         self.p_confusion = p_confusion
         self.word_list = []
-        self.source_list = []
         self.block_size = block_size
 
         self.chars = chars
@@ -26,6 +25,8 @@ class CharDataset(Dataset):
         self.itos = itos
         self.sourcetoi = sourcetoi
         self.itosource = itosource
+
+        self.seq_len = self.block_size + df.shape[1] - 1
 
         # Drop words which are too long
         df = df.loc[df["word"].str.len() < block_size]
@@ -115,7 +116,6 @@ class CharDataset(Dataset):
         end_padded_word = word + "0"
 
         source_prefix = self._get_source_prefix(idx)
-
         padding = "0" * (self.block_size - starting_char)
         chunk = padding + end_padded_word[: starting_char + 1]
         chunk_int = source_prefix + [self.stoi[s] for s in chunk]
@@ -137,7 +137,7 @@ class CharDataset(Dataset):
         y = torch.tensor(no_source_chunk_int[1:], dtype=torch.long)
         word = torch.tensor(word_int, dtype=torch.long)
         # return x, x_no_source, y, word
-        return x, x_no_source, y, x
+        return x, x_no_source, y, word
 
 
 def get_source_to_index_map(source):
