@@ -8,6 +8,8 @@ from fuzzywuzzy import process
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
+from avae.utils import generate_samples
+
 
 @dataclass
 class TrainerConfig:
@@ -24,6 +26,9 @@ class TrainerConfig:
     num_workers: int = 0
     sample_freq: int = 1000
     freeze_layers: list = ()
+    c_increment: float = 0.0
+    beta_decay: float = 0.0
+    max_c: float = 10.0
 
 
 class Trainer:
@@ -40,28 +45,26 @@ class Trainer:
         self.test_dataset = test_dataset
         self.config = config
         self.log_nearest_words = log_nearest_words
-
+        self.c_coeff = 0.0
         self.device = "cpu"
         if torch.cuda.is_available():
             self.device = torch.cuda.current_device()
             # self.model = torch.nn.DataParallel(self.model).to(self.device)
             self.model = self.model.to(self.device)
 
-        if hasattr(model, "stoi"):
-            # assert model.stoi == train_dataset.stoi
-            # assert model.itos == train_dataset.itos
-            # assert model.sourcetoi == train_dataset.sourcetoi
-            # assert model.itosource == train_dataset.itosource
-            train_dataset.stoi = model.stoi
-            train_dataset.itos = model.itos
-            train_dataset.sourcetoi = model.sourcetoi
-            train_dataset.itosource = model.itosource
+            # if hasattr(model, "stoi"):
+            # train_dataset.stoi = model.stoi
+            # train_dataset.itos = model.itos
+            # train_dataset.sourcetoi = model.sourcetoi
+            # train_dataset.itosource = model.itosource
 
-        else:
-            model.stoi = train_dataset.stoi
-            model.itos = train_dataset.itos
-            model.sourcetoi = train_dataset.sourcetoi
-            model.itosource = train_dataset.itosource
+            # # else:
+        model.stoi = train_dataset.stoi
+        model.itos = train_dataset.itos
+        model.sourcetoi = train_dataset.sourcetoi
+        model.itosource = train_dataset.itosource
+
+        model.source_types = train_dataset.source_types
 
         self.losses = defaultdict(list)
 
@@ -113,20 +116,21 @@ class Trainer:
         )
 
         epoch_losses = defaultdict(list)
-        pbar = (
-            tqdm(enumerate(loader), total=len(loader))
-            if is_train
-            else enumerate(loader)
-        )
+        pbar = tqdm(enumerate(loader), total=len(loader))
+
         for it, (x, x_no_source, y, word) in pbar:
-            # print(x)
             x = x.to(self.device)
             x_no_source = x_no_source.to(self.device)
             y = y.to(self.device)
             word = word.to(self.device)
             with torch.set_grad_enabled(is_train):
                 logits, loss_dict = self.model(
-                    x, x_no_source, y, word, training=True
+                    x,
+                    x_no_source,
+                    y,
+                    word,
+                    training=True,
+                    c_coeff=self.c_coeff,
                 )
 
                 loss = loss_dict["loss"].mean()
@@ -141,6 +145,12 @@ class Trainer:
                     self.model.parameters(), self.config.grad_norm_clip
                 )
                 optimizer.step()
+
+                if self.c_coeff <= self.config.max_c:
+                    self.c_coeff += self.config.c_increment
+
+                if self.model.config.KLD_beta > 1.0:
+                    self.model.config.KLD_beta -= self.config.beta_decay
 
                 if self.config.lr_decay:
                     self.tokens += (y >= 0).sum()
@@ -180,7 +190,6 @@ class Trainer:
                 "test_" + key: np.mean(val)
                 for key, val in epoch_losses.items()
             }
-            # print(f"Test loss: {test_losses['test_loss']}")
             return test_losses
         return epoch_losses
 
@@ -192,40 +201,26 @@ class Trainer:
     def print_samples(self):
 
         # create an empty word context.
-        source = np.random.choice(self.train_dataset.unique_sources)
-        source_int = self.train_dataset.sourcetoi[source]
+        samples = generate_samples(
+            initial_context="",
+            vae=self.model,
+            n_samples=10,
+            method="smart",
+            sample=True,
+            temperature=1.0,
+            source_dict=None,
+            top_k=8,
+        )
 
-        context = "0" * (self.model.config.block_size - 1)
-        x = torch.tensor(
-            [source_int] + [self.train_dataset.stoi[s] for s in context],
-            dtype=torch.long,
-        )[None, ...].to(self.device)
-        x = torch.repeat_interleave(x, 5, dim=0)
+        for sample in samples:
 
-        # sample some words
-        with torch.no_grad():
-            y = self.model.sample(
-                x, 20, temperature=1.0, sample=True, top_k=10,
-            )
-        for gen_word in y:
-            # sample = decode_word(
-            #     gen_word.cpu().numpy(),
-            #     self.train_dataset.itos,
-            #     length=self.model.config.block_size,
-            # )
-
-            completion = "".join(
-                [self.train_dataset.itos[int(i)] for i in gen_word[1:]]
-            )
-            sample = completion[self.model.config.block_size - 1 :].split("0")[
-                0
-            ]
-            sample += " " * (self.model.config.block_size - len(sample))
             if self.log_nearest_words:
 
                 # Find the nearest term in the training set.
                 match = process.extract(
-                    sample, self.train_dataset.unique_word_list, limit=1
+                    sample,
+                    self.train_dataset.df["word"].unique().tolist(),
+                    limit=1,
                 )[0][0]
 
                 sample += f"\t closes match: {match}"

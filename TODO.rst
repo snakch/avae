@@ -1,19 +1,12 @@
-# Experiments - Lexicon
+Trainer: use validation set properly
 
-Ablation - does classifier head really help or is it something else?
-Check word interpolation
+Refactor: the way we're handling sources is clunky and hard to maintain
+Beta vae: check out some tricks to get better disentangled encoding
+Progressive network: investigate pretraining + freezing + adding layers
+Test: test not feeing whole word to encoder but just x or just y (I may be hurting the decoder by passing all info through)
 
-# Experiments - Names
 
-Transfer learn names with lates model
-Check name generation
-Check name interpolation
 
-# Codebase
-
-Clean up current codebase, remove dead code
-Make  AVAE more encoder decoder agnostic
-Have all utils ready for an app
 
 
 

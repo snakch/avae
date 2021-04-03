@@ -97,18 +97,29 @@ def decode_word(word: list, inverse_mapping: dict, length: int = 20) -> str:
     return "".join(char_list)
 
 
-def str_to_tensor(context, vae, n_samples, source=None):
-    if not source:
-        source = np.random.choice(vae.sourcetoi.values())
-    source_int = vae.sourcetoi[source]
+def str_to_tensor(context, vae, n_samples, source_dict=None):
+    if source_dict is None:
+        source_dict = {
+            source_type: "_random" for source_type in vae.source_types
+        }
+
+    prefix = get_source_prefix(source_dict, vae)
 
     context = "0" * (vae.config.block_size - len(context) - 1) + context
-    #     context = "0" * (vae.config.block_size - 1)
+
     x = torch.tensor(
-        [source_int] + [vae.stoi[s] for s in context], dtype=torch.long,
-    )[None, ...].to("cuda")
+        prefix + [vae.stoi[s] for s in context], dtype=torch.long,
+    )[None, ...].to(vae.device)
     x = torch.repeat_interleave(x, n_samples, dim=0)
     return x
+
+
+def get_source_prefix(source_dict, vae):
+    prefix = []
+    for source_type, source_map in vae.sourcetoi.items():
+        source_value = source_dict[source_type]
+        prefix.append(source_map[source_value])
+    return prefix
 
 
 def generate_samples(
@@ -118,28 +129,35 @@ def generate_samples(
     method="smart",
     sample=False,
     temperature=3.0,
-    source=None,
+    source_dict=None,
     top_k=10,
     second_context=None,
 ):
+    # print(initial_context)
 
-    x = str_to_tensor(initial_context, vae, n_samples, source=source,)
+    x = str_to_tensor(
+        initial_context, vae, n_samples, source_dict=source_dict,
+    )
     around_word = None
     if method == "word":
-        x = str_to_tensor("", vae, n_samples, source=source,)
+        x = str_to_tensor("", vae, n_samples, source_dict=source_dict,)
         around_word = str_to_tensor(
-            initial_context, vae, n_samples, source=source,
+            initial_context, vae, n_samples, source_dict=source_dict,
         )
 
     if method == "interpolate":
         x = str_to_tensor(
-            "", vae.sourcetoi, vae.config.block_size, n_samples, source=source,
+            "",
+            vae.sourcetoi,
+            vae.config.block_size,
+            n_samples,
+            source_dict=source_dict,
         )
         around_word = str_to_tensor(
-            initial_context, vae, n_samples, source=source,
+            initial_context, vae, n_samples, source_dict=source_dict,
         )
         second_context = str_to_tensor(
-            second_context, vae, n_samples, source=source,
+            second_context, vae, n_samples, source_dict=source_dict,
         )
 
     initial_randomness = len(initial_context) == 0
@@ -164,16 +182,9 @@ def generate_samples(
         start += len(initial_context)
 
     for sent in y:
-        #         print(y)
 
         completion = "".join([vae.itos[int(i)] for i in sent[1:]])
-        #         print(completion)
-        #         print(completion)
+
         completions.append(completion[start:].split("0")[0])
-    #         import pdb
 
-    #         pdb.set_trace()
-
-    #         completion = completion[vae.config.block_size - len(initial_context) :].split("0")
-    #         completions.append([c for c in completion if c != ""][0])
     return completions
