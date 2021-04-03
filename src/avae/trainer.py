@@ -27,6 +27,7 @@ class TrainerConfig:
     sample_freq: int = 1000
     freeze_layers: list = ()
     c_increment: float = 0.0
+    beta_decay: float = 0.0
     max_c: float = 10.0
 
 
@@ -147,6 +148,9 @@ class Trainer:
 
                 if self.c_coeff <= self.config.max_c:
                     self.c_coeff += self.config.c_increment
+
+                if self.model.config.KLD_beta > 1.0:
+                    self.model.config.KLD_beta -= self.config.beta_decay
 
                 if self.config.lr_decay:
                     self.tokens += (y >= 0).sum()

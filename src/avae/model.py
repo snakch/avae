@@ -445,6 +445,7 @@ class Encoder(AttentionNetwork):
         # return x_q, x_k
 
         x = self.ln_f(x)
+
         return self.head(x)
 
 
@@ -594,14 +595,15 @@ class AttentionVae(AttentionNetwork):
                     0, self.config.n_source_types[source_idx], size=(128,),
                 ).to(self.device)
 
-        m_k, log_s_k, m_v, log_s_v = torch.chunk(self.encoder(word), 4, -1)
+        encoded = self.encoder(word)
+        m_k, log_s_k, m_v, log_s_v = torch.chunk(encoded, 4, -1)
 
         z_k = self.reparametrize(m_k, log_s_k)
         z_v = self.reparametrize(m_v, log_s_v)
         if training:
-
+            smart_encoded = self.smart_encoder(input)
             m_k_smart, log_s_k_smart, m_v_smart, log_s_v_smart = torch.chunk(
-                self.smart_encoder(input), 4, -1
+                smart_encoded, 4, -1
             )
 
             z_k_smart = self.reparametrize(m_k_smart, log_s_k_smart)
@@ -681,9 +683,9 @@ class AttentionVae(AttentionNetwork):
             # a language) but not the decoding path
             # Still question of how to go english language -> english name.
             # Ie how do I transfer knowledge about words
-            smart_encoder_guess = F.mse_loss(z_k_smart, z_k, reduction="none")
-            smart_encoder_guess += F.mse_loss(z_v_smart, z_v, reduction="none")
-
+            smart_encoder_guess = F.mse_loss(
+                encoded, smart_encoded, reduction="none"
+            )
             smart_encoder_guess = smart_encoder_guess.sum(-1).mean(1)
 
             KLD_k_smart = (
